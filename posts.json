@@ -1,0 +1,14 @@
+{
+  "categories": ["Kubernetes", "Docker", "Linux", "Git"],
+  "posts": [
+    {
+      "id": "kubectl-cheatsheet",
+      "title": "kubectl 명령어 완벽 정리",
+      "date": "2026-04-08",
+      "category": "Kubernetes",
+      "summary": "Kubernetes 클러스터 관리를 위한 kubectl 핵심 명령어를 카테고리별로 정리한 치트시트",
+      "filename": "posts/kubectl-cheatsheet.html",
+      "tags": ["kubernetes", "kubectl", "devops"]
+    }
+  ]
+}

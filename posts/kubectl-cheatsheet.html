@@ -1,0 +1,312 @@
+<article>
+  <header class="post-header">
+    <h1 class="post-title">kubectl 명령어 완벽 정리</h1>
+    <div class="post-meta">
+      <time>2026-04-08</time>
+      <span class="category-tag">Kubernetes</span>
+    </div>
+  </header>
+
+  <div class="post-content">
+    <blockquote>
+      <code>kubectl</code>은 Kubernetes 클러스터를 관리하기 위한 CLI 도구입니다.
+      이 글에서는 실무에서 자주 사용하는 명령어를 카테고리별로 정리합니다.
+    </blockquote>
+
+    <h2>1. 클러스터 정보 & 컨텍스트 관리</h2>
+
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl cluster-info</code></td><td>클러스터 정보 확인</td></tr>
+        <tr><td><code>kubectl version</code></td><td>클라이언트/서버 버전 확인</td></tr>
+        <tr><td><code>kubectl config view</code></td><td>kubeconfig 설정 확인</td></tr>
+        <tr><td><code>kubectl config get-contexts</code></td><td>모든 컨텍스트 목록</td></tr>
+        <tr><td><code>kubectl config current-context</code></td><td>현재 활성 컨텍스트</td></tr>
+        <tr><td><code>kubectl config use-context &lt;name&gt;</code></td><td>컨텍스트 전환</td></tr>
+        <tr><td><code>kubectl config set-context --current --namespace=&lt;ns&gt;</code></td><td>기본 네임스페이스 변경</td></tr>
+      </tbody>
+    </table>
+
+    <h2>2. 네임스페이스 (Namespace)</h2>
+
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl get namespaces</code></td><td>네임스페이스 목록</td></tr>
+        <tr><td><code>kubectl create namespace &lt;name&gt;</code></td><td>네임스페이스 생성</td></tr>
+        <tr><td><code>kubectl delete namespace &lt;name&gt;</code></td><td>네임스페이스 삭제</td></tr>
+        <tr><td><code>kubectl get all -n &lt;namespace&gt;</code></td><td>특정 네임스페이스의 모든 리소스</td></tr>
+        <tr><td><code>kubectl get all --all-namespaces</code></td><td>모든 네임스페이스의 리소스</td></tr>
+      </tbody>
+    </table>
+
+    <h2>3. Pod 관리</h2>
+
+    <h3>조회</h3>
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl get pods</code></td><td>Pod 목록 (현재 네임스페이스)</td></tr>
+        <tr><td><code>kubectl get pods -o wide</code></td><td>상세 정보 (노드, IP 포함)</td></tr>
+        <tr><td><code>kubectl get pods --show-labels</code></td><td>레이블 포함 조회</td></tr>
+        <tr><td><code>kubectl get pods -l app=nginx</code></td><td>레이블 셀렉터로 필터링</td></tr>
+        <tr><td><code>kubectl get pods --field-selector status.phase=Running</code></td><td>필드 셀렉터로 필터링</td></tr>
+        <tr><td><code>kubectl get pods -w</code></td><td>실시간 변경 감시 (watch)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>상세 정보 & 생성</h3>
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl describe pod &lt;name&gt;</code></td><td>Pod 상세 정보</td></tr>
+        <tr><td><code>kubectl run &lt;name&gt; --image=&lt;image&gt;</code></td><td>Pod 빠른 생성</td></tr>
+        <tr><td><code>kubectl run &lt;name&gt; --image=&lt;image&gt; --dry-run=client -o yaml</code></td><td>YAML 생성 (적용 안 함)</td></tr>
+        <tr><td><code>kubectl delete pod &lt;name&gt;</code></td><td>Pod 삭제</td></tr>
+        <tr><td><code>kubectl delete pod &lt;name&gt; --grace-period=0 --force</code></td><td>강제 삭제</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Pod 내부 접근</h3>
+    <pre><code># 컨테이너 쉘 접속
+kubectl exec -it &lt;pod-name&gt; -- /bin/bash
+
+# 특정 컨테이너 접속 (멀티 컨테이너 Pod)
+kubectl exec -it &lt;pod-name&gt; -c &lt;container-name&gt; -- /bin/sh
+
+# Pod에서 명령어 실행
+kubectl exec &lt;pod-name&gt; -- ls /app
+
+# 파일 복사 (로컬 → Pod)
+kubectl cp &lt;local-path&gt; &lt;pod-name&gt;:&lt;remote-path&gt;
+
+# 파일 복사 (Pod → 로컬)
+kubectl cp &lt;pod-name&gt;:&lt;remote-path&gt; &lt;local-path&gt;</code></pre>
+
+    <h2>4. Deployment 관리</h2>
+
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl get deployments</code></td><td>Deployment 목록</td></tr>
+        <tr><td><code>kubectl describe deployment &lt;name&gt;</code></td><td>Deployment 상세 정보</td></tr>
+        <tr><td><code>kubectl create deployment &lt;name&gt; --image=&lt;image&gt;</code></td><td>Deployment 생성</td></tr>
+        <tr><td><code>kubectl set image deployment/&lt;name&gt; &lt;container&gt;=&lt;new-image&gt;</code></td><td>이미지 업데이트 (롤링 업데이트)</td></tr>
+        <tr><td><code>kubectl rollout status deployment/&lt;name&gt;</code></td><td>롤아웃 상태 확인</td></tr>
+        <tr><td><code>kubectl rollout history deployment/&lt;name&gt;</code></td><td>롤아웃 히스토리</td></tr>
+        <tr><td><code>kubectl rollout undo deployment/&lt;name&gt;</code></td><td>이전 버전으로 롤백</td></tr>
+        <tr><td><code>kubectl rollout undo deployment/&lt;name&gt; --to-revision=&lt;n&gt;</code></td><td>특정 리비전으로 롤백</td></tr>
+        <tr><td><code>kubectl delete deployment &lt;name&gt;</code></td><td>Deployment 삭제</td></tr>
+      </tbody>
+    </table>
+
+    <h2>5. 스케일링</h2>
+
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl scale deployment/&lt;name&gt; --replicas=&lt;n&gt;</code></td><td>레플리카 수 조정</td></tr>
+        <tr><td><code>kubectl autoscale deployment/&lt;name&gt; --min=2 --max=10 --cpu-percent=80</code></td><td>HPA 설정</td></tr>
+        <tr><td><code>kubectl get hpa</code></td><td>HPA 목록</td></tr>
+        <tr><td><code>kubectl delete hpa &lt;name&gt;</code></td><td>HPA 삭제</td></tr>
+      </tbody>
+    </table>
+
+    <h2>6. Service & Ingress</h2>
+
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl get services</code></td><td>Service 목록</td></tr>
+        <tr><td><code>kubectl get svc</code></td><td>Service 목록 (약어)</td></tr>
+        <tr><td><code>kubectl describe svc &lt;name&gt;</code></td><td>Service 상세 정보</td></tr>
+        <tr><td><code>kubectl expose deployment &lt;name&gt; --port=80 --target-port=8080 --type=ClusterIP</code></td><td>Service 생성</td></tr>
+        <tr><td><code>kubectl expose deployment &lt;name&gt; --port=80 --type=NodePort</code></td><td>NodePort Service 생성</td></tr>
+        <tr><td><code>kubectl expose deployment &lt;name&gt; --port=80 --type=LoadBalancer</code></td><td>LoadBalancer Service 생성</td></tr>
+        <tr><td><code>kubectl get ingress</code></td><td>Ingress 목록</td></tr>
+        <tr><td><code>kubectl describe ingress &lt;name&gt;</code></td><td>Ingress 상세 정보</td></tr>
+        <tr><td><code>kubectl port-forward svc/&lt;name&gt; &lt;local&gt;:&lt;remote&gt;</code></td><td>포트 포워딩</td></tr>
+      </tbody>
+    </table>
+
+    <h2>7. ConfigMap & Secret</h2>
+
+    <h3>ConfigMap</h3>
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl get configmaps</code></td><td>ConfigMap 목록</td></tr>
+        <tr><td><code>kubectl create configmap &lt;name&gt; --from-literal=key=value</code></td><td>리터럴로 생성</td></tr>
+        <tr><td><code>kubectl create configmap &lt;name&gt; --from-file=&lt;path&gt;</code></td><td>파일에서 생성</td></tr>
+        <tr><td><code>kubectl describe configmap &lt;name&gt;</code></td><td>ConfigMap 상세</td></tr>
+        <tr><td><code>kubectl get configmap &lt;name&gt; -o yaml</code></td><td>YAML로 출력</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Secret</h3>
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl get secrets</code></td><td>Secret 목록</td></tr>
+        <tr><td><code>kubectl create secret generic &lt;name&gt; --from-literal=key=value</code></td><td>리터럴로 생성</td></tr>
+        <tr><td><code>kubectl create secret docker-registry &lt;name&gt; --docker-server=... --docker-username=... --docker-password=...</code></td><td>Docker 레지스트리 시크릿</td></tr>
+        <tr><td><code>kubectl get secret &lt;name&gt; -o jsonpath='{.data.key}' | base64 -d</code></td><td>Secret 값 디코딩</td></tr>
+      </tbody>
+    </table>
+
+    <h2>8. 로그 & 디버깅</h2>
+
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl logs &lt;pod-name&gt;</code></td><td>Pod 로그</td></tr>
+        <tr><td><code>kubectl logs &lt;pod-name&gt; -f</code></td><td>실시간 로그 (follow)</td></tr>
+        <tr><td><code>kubectl logs &lt;pod-name&gt; --tail=100</code></td><td>최근 100줄</td></tr>
+        <tr><td><code>kubectl logs &lt;pod-name&gt; --since=1h</code></td><td>최근 1시간 로그</td></tr>
+        <tr><td><code>kubectl logs &lt;pod-name&gt; -c &lt;container&gt;</code></td><td>특정 컨테이너 로그</td></tr>
+        <tr><td><code>kubectl logs &lt;pod-name&gt; --previous</code></td><td>이전(재시작 전) 로그</td></tr>
+        <tr><td><code>kubectl logs -l app=nginx</code></td><td>레이블로 여러 Pod 로그</td></tr>
+      </tbody>
+    </table>
+
+    <h3>디버깅 명령어</h3>
+    <pre><code># 리소스 이벤트 확인
+kubectl get events --sort-by=.metadata.creationTimestamp
+
+# 노드 상태 확인
+kubectl get nodes
+kubectl describe node &lt;node-name&gt;
+kubectl top nodes
+
+# Pod 리소스 사용량
+kubectl top pods
+kubectl top pods --sort-by=memory
+
+# 임시 디버그 컨테이너 (Ephemeral Container)
+kubectl debug -it &lt;pod-name&gt; --image=busybox
+
+# DNS 디버깅
+kubectl run dns-test --image=busybox --rm -it -- nslookup &lt;service-name&gt;</code></pre>
+
+    <h2>9. YAML 적용 & 관리</h2>
+
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl apply -f &lt;file.yaml&gt;</code></td><td>리소스 생성/업데이트</td></tr>
+        <tr><td><code>kubectl apply -f &lt;directory/&gt;</code></td><td>디렉토리 내 모든 YAML 적용</td></tr>
+        <tr><td><code>kubectl apply -f &lt;url&gt;</code></td><td>URL에서 YAML 적용</td></tr>
+        <tr><td><code>kubectl delete -f &lt;file.yaml&gt;</code></td><td>YAML에 정의된 리소스 삭제</td></tr>
+        <tr><td><code>kubectl diff -f &lt;file.yaml&gt;</code></td><td>적용 전 변경사항 확인</td></tr>
+        <tr><td><code>kubectl get &lt;resource&gt; &lt;name&gt; -o yaml</code></td><td>리소스를 YAML로 출력</td></tr>
+        <tr><td><code>kubectl get &lt;resource&gt; &lt;name&gt; -o json</code></td><td>리소스를 JSON으로 출력</td></tr>
+        <tr><td><code>kubectl edit &lt;resource&gt; &lt;name&gt;</code></td><td>리소스 직접 편집</td></tr>
+      </tbody>
+    </table>
+
+    <h2>10. 레이블 & 어노테이션</h2>
+
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl label pod &lt;name&gt; env=prod</code></td><td>레이블 추가</td></tr>
+        <tr><td><code>kubectl label pod &lt;name&gt; env=prod --overwrite</code></td><td>레이블 덮어쓰기</td></tr>
+        <tr><td><code>kubectl label pod &lt;name&gt; env-</code></td><td>레이블 삭제</td></tr>
+        <tr><td><code>kubectl annotate pod &lt;name&gt; description="my pod"</code></td><td>어노테이션 추가</td></tr>
+        <tr><td><code>kubectl annotate pod &lt;name&gt; description-</code></td><td>어노테이션 삭제</td></tr>
+      </tbody>
+    </table>
+
+    <h2>11. 리소스 약어 모음</h2>
+
+    <p>자주 사용하는 리소스 약어입니다. <code>kubectl get &lt;약어&gt;</code>로 사용할 수 있습니다.</p>
+
+    <table>
+      <thead>
+        <tr><th>리소스</th><th>약어</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>pods</td><td><code>po</code></td></tr>
+        <tr><td>services</td><td><code>svc</code></td></tr>
+        <tr><td>deployments</td><td><code>deploy</code></td></tr>
+        <tr><td>replicasets</td><td><code>rs</code></td></tr>
+        <tr><td>statefulsets</td><td><code>sts</code></td></tr>
+        <tr><td>daemonsets</td><td><code>ds</code></td></tr>
+        <tr><td>configmaps</td><td><code>cm</code></td></tr>
+        <tr><td>secrets</td><td><code>sec</code></td></tr>
+        <tr><td>ingresses</td><td><code>ing</code></td></tr>
+        <tr><td>namespaces</td><td><code>ns</code></td></tr>
+        <tr><td>nodes</td><td><code>no</code></td></tr>
+        <tr><td>persistentvolumes</td><td><code>pv</code></td></tr>
+        <tr><td>persistentvolumeclaims</td><td><code>pvc</code></td></tr>
+        <tr><td>horizontalpodautoscalers</td><td><code>hpa</code></td></tr>
+        <tr><td>serviceaccounts</td><td><code>sa</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>12. 유용한 팁</h2>
+
+    <h3>출력 포맷</h3>
+    <pre><code># JSON 경로로 특정 필드 추출
+kubectl get pods -o jsonpath='{.items[*].metadata.name}'
+
+# 커스텀 컬럼
+kubectl get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName
+
+# 정렬
+kubectl get pods --sort-by=.metadata.creationTimestamp</code></pre>
+
+    <h3>자동완성 설정 (Bash)</h3>
+    <pre><code># bash 자동완성 활성화
+source &lt;(kubectl completion bash)
+
+# 영구 설정
+echo 'source &lt;(kubectl completion bash)' >> ~/.bashrc
+
+# 별칭 설정
+alias k=kubectl
+complete -o default -F __start_kubectl k</code></pre>
+
+    <h3>자동완성 설정 (Zsh)</h3>
+    <pre><code># zsh 자동완성 활성화
+source &lt;(kubectl completion zsh)
+
+# 영구 설정
+echo 'source &lt;(kubectl completion zsh)' >> ~/.zshrc</code></pre>
+
+    <h3>dry-run으로 YAML 생성</h3>
+    <pre><code># Deployment YAML 생성
+kubectl create deployment nginx --image=nginx --dry-run=client -o yaml > nginx-deploy.yaml
+
+# Service YAML 생성
+kubectl expose deployment nginx --port=80 --dry-run=client -o yaml > nginx-svc.yaml
+
+# Job YAML 생성
+kubectl create job my-job --image=busybox --dry-run=client -o yaml -- echo "hello"</code></pre>
+  </div>
+</article>
