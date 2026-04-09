@@ -351,6 +351,115 @@ Ingress Controller Pod (watch 중)
 
     <p>CoreDNS가 DNS를 처리하는 일반 Pod이듯, Ingress Controller도 HTTP 라우팅을 처리하는 일반 Pod이다.</p>
 
+    <h2>Ingress가 있으면 NodePort 없어도 되나?</h2>
+
+    <p><strong>아니다.</strong> Ingress Controller는 클러스터 <strong>안에서</strong> 라우팅하는 리버스 프록시일 뿐, 외부에서 이 Pod에 도달하려면 <strong>진입점이 여전히 필요하다.</strong></p>
+
+    <h3>Ingress Controller 자체도 외부에 노출되어야 한다</h3>
+
+    <pre><code>흔한 오해:
+  "Ingress를 쓰면 NodePort/LoadBalancer 없이 외부 접근 가능하다"
+
+현실:
+  Ingress Controller Pod 자체가 NodePort 또는 LoadBalancer로 외부에 노출된다.
+  Ingress는 NodePort를 대체하는 게 아니라, NodePort 위에 올라탄다.</code></pre>
+
+    <h3>환경별 진입 경로</h3>
+
+    <pre><code>[클라우드 &mdash; EKS]
+
+  인터넷
+    │
+    ▼
+  ALB (Ingress Controller가 자동 생성)   &larr; LoadBalancer가 진입점
+    │
+    ▼
+  Ingress Controller Pod
+    │
+    ├── /     &rarr; frontend-svc &rarr; Pod
+    └── /api  &rarr; backend-svc &rarr; Pod
+
+
+[로컬 &mdash; Minikube]
+
+  방법 1: minikube tunnel
+
+  브라우저
+    │
+    │  http://127.0.0.1
+    │
+    ▼
+  minikube tunnel (LoadBalancer 시뮬레이션)  &larr; tunnel이 진입점
+    │
+    ▼
+  Ingress Controller Pod
+    │
+    ├── /     &rarr; frontend-svc &rarr; Pod
+    └── /api  &rarr; backend-svc &rarr; Pod
+
+
+  방법 2: Ingress Controller의 NodePort 직접 사용
+
+  브라우저
+    │
+    │  http://192.168.49.2:30080
+    │
+    ▼
+  Ingress Controller의 NodePort           &larr; NodePort가 진입점
+    │
+    ▼
+  Ingress Controller Pod
+    │
+    ├── /     &rarr; frontend-svc &rarr; Pod
+    └── /api  &rarr; backend-svc &rarr; Pod</code></pre>
+
+    <h3>Minikube에서 Ingress 접근하는 실전 방법</h3>
+
+    <pre><code># 1. Ingress Controller 설치
+minikube addons enable ingress
+
+# 2. Ingress Controller가 어떻게 노출되어 있는지 확인
+kubectl get svc -n ingress-nginx
+
+NAME                       TYPE       CLUSTER-IP     PORT(S)
+ingress-nginx-controller   NodePort   10.96.xxx.xx   80:30080/TCP,443:30443/TCP
+                           &uarr; NodePort로 노출되어 있다!
+
+# 3. 접근 방법 A: minikube tunnel (권장)
+minikube tunnel
+# &rarr; 이제 http://127.0.0.1 로 접근 가능
+
+# 3. 접근 방법 B: NodePort 직접 사용
+minikube ip
+# &rarr; 192.168.49.2
+# &rarr; http://192.168.49.2:30080 으로 접근</code></pre>
+
+    <h3>결론: 진입점 없이는 아무것도 안 된다</h3>
+
+    <table>
+      <thead>
+        <tr><th>환경</th><th>Ingress Controller의 진입점</th><th>접근 방법</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>EKS</strong></td><td>ALB (자동 생성)</td><td><code>http://ALB주소/api</code></td></tr>
+        <tr><td><strong>Minikube</strong></td><td>NodePort + tunnel</td><td><code>http://127.0.0.1/api</code></td></tr>
+        <tr><td><strong>bare-metal</strong></td><td>NodePort 또는 MetalLB</td><td><code>http://노드IP:30080/api</code></td></tr>
+      </tbody>
+    </table>
+
+    <pre><code>계층 구조:
+
+  [진입점]          NodePort / LoadBalancer / tunnel
+      │             &larr; 외부 &rarr; 클러스터 경계를 넘는 역할
+      ▼
+  [라우팅]          Ingress Controller (Nginx/ALB)
+      │             &larr; 경로/도메인 보고 분기하는 역할
+      ▼
+  [서비스]          ClusterIP Service &rarr; Pod
+                    &larr; 클러스터 내부 트래픽 전달</code></pre>
+
+    <p>Ingress는 <strong>"어디로 보낼지"를 결정</strong>하고, NodePort/LoadBalancer는 <strong>"외부에서 들어올 문"을 연다.</strong> 둘은 대체 관계가 아니라 <strong>각자 다른 레이어</strong>다.</p>
+
     <h2>전체 비교 정리</h2>
 
     <h3>뭘 써야 하는가?</h3>
