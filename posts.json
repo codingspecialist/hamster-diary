@@ -83,6 +83,15 @@
       "tags": ["kubernetes", "ingress", "loadbalancer", "nodeport", "port-forward", "networking", "alb"]
     },
     {
+      "id": "ex10-msa",
+      "title": "ex10: MSA 로컬 환경 전체 아키텍처",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "4개 마이크로서비스 블루-그린 배포, HPA 오토스케일링, Ingress 경로 분기, Service 내부 구조(ClusterIP 포함 관계)까지 전체 아키텍처 정리",
+      "filename": "posts/ex10-msa.html",
+      "tags": ["kubernetes", "msa", "ingress", "hpa", "blue-green", "architecture"]
+    },
+    {
       "id": "kubectl-cheatsheet",
       "title": "kubectl 명령어 완벽 정리",
       "date": "2026-04-08",

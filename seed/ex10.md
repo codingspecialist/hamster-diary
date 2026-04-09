@@ -1,0 +1,999 @@
+# ex10: MSA 로컬 환경 전체 아키텍처
+
+## 프로젝트 구조
+
+4개 마이크로서비스, 각 3개 replica (총 Pod 12개 + DB Pod)
+오토스케일링(HPA), 블루-그린 무중단 배포, Ingress 경로 분기
+
+---
+
+## 전체 아키텍처 그림
+
+### 1. 쉬운 그림 (전체 흐름)
+
+```
+                        ┌─ 내 PC ─┐
+                        │ 브라우저  │
+                        └────┬─────┘
+                             │
+                   http://127.0.0.1/order
+                             │
+                             ▼
+              ┌─────────────────────────────┐
+              │       minikube tunnel       │  ← 외부 진입점
+              │   (또는 NodePort :30080)     │
+              └──────────────┬──────────────┘
+                             │
+═════════════════════════════╪══════════════════════════ 클러스터 경계
+                             │
+                             ▼
+              ┌─────────────────────────────┐
+              │     Ingress Controller      │  ← 경로 보고 분기 (L7)
+              │         (Nginx Pod)         │
+              │                             │
+              │  /user     → user-svc       │
+              │  /delivery → delivery-svc   │
+              │  /order    → order-svc      │
+              │  /product  → product-svc    │
+              └──┬──────┬──────┬──────┬─────┘
+                 │      │      │      │
+     ┌───────────┘      │      │      └───────────┐
+     ▼                  ▼      ▼                   ▼
+┌─────────┐      ┌─────────┐ ┌─────────┐    ┌─────────┐
+│user-svc │      │delivery │ │order-svc│    │product  │
+│ClusterIP│      │  -svc   │ │ClusterIP│    │  -svc   │  ← Service
+└────┬────┘      └────┬────┘ └────┬────┘    └────┬────┘     (kube-proxy가
+     │                │           │              │           Pod에 분산)
+     ▼                ▼           ▼              ▼
+ ┌──┬──┐         ┌──┬──┐     ┌──┬──┐        ┌──┬──┐
+ │P1│P2│P3       │P1│P2│P3   │P1│P2│P3      │P1│P2│P3    ← Pod (각 3개)
+ └──┴──┘         └──┴──┘     └──┴──┘        └──┴──┘
+  user            delivery     order          product
+  (Blue)          (Blue)       (Blue)         (Blue)      ← Deployment
+     │                │           │              │
+     └────────────────┴─────┬─────┴──────────────┘
+                            │
+                            ▼
+                     ┌────────────┐
+                     │  db-svc    │  ← DB Service
+                     │  ClusterIP │
+                     └─────┬──────┘
+                           │
+                           ▼
+                     ┌────────────┐
+                     │  MySQL Pod │  ← DB (replica=1)
+                     │            │
+                     │  PVC → PV  │  ← 데이터 영속 저장
+                     └────────────┘
+```
+
+### 2. 각 마이크로서비스 내부 (user 기준, 나머지 동일)
+
+```
+                    user-svc (ClusterIP)
+                    selector: app=user, slot=blue
+                         │
+          kube-proxy iptables (round-robin)
+                         │
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+          ┌──────┐  ┌──────┐  ┌──────┐
+          │ Pod1 │  │ Pod2 │  │ Pod3 │     ← user-blue Deployment
+          │ v1   │  │ v1   │  │ v1   │        (현재 운영 중)
+          └──────┘  └──────┘  └──────┘
+
+          ┌──────┐  ┌──────┐  ┌──────┐
+          │ Pod1 │  │ Pod2 │  │ Pod3 │     ← user-green Deployment
+          │ v2   │  │ v2   │  │ v2   │        (대기 중, replicas=0 또는 3)
+          └──────┘  └──────┘  └──────┘
+
+          ┌──────────────────────────┐
+          │ HPA (user-hpa)           │     ← 오토스케일링
+          │ CPU 50% → 3~10개 자동조절│
+          └──────────────────────────┘
+
+  블루-그린 전환:
+    kubectl patch svc user-svc -p '{"spec":{"selector":{"slot":"green"}}}'
+    → Service가 Green Pod을 바라봄 → 즉시 전환 (무중단)
+```
+
+### 3. 설정 및 저장소
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                                                                  │
+│  ConfigMap (app-config)          Secret (app-secret)             │
+│  ┌────────────────────┐         ┌────────────────────┐          │
+│  │ DB_HOST=db-svc     │         │ DB_PASSWORD=***    │          │
+│  │ DB_PORT=3306       │         │ JWT_SECRET=***     │          │
+│  │ DB_NAME=ex10db     │         │ DB_USERNAME=***    │          │
+│  └────────┬───────────┘         └────────┬───────────┘          │
+│           │                              │                      │
+│           └──────────┬───────────────────┘                      │
+│                      │                                          │
+│                      ▼                                          │
+│            모든 Pod에 envFrom으로 주입                            │
+│            (user, delivery, order, product 전부)                 │
+│                                                                  │
+│  PV / PVC                                                        │
+│  ┌──────────────────────────────────────────┐                   │
+│  │ PV: hostPath /data/mysql (5Gi)           │                   │
+│  │     ↑                                    │                   │
+│  │ PVC: db-pvc (5Gi)                        │                   │
+│  │     ↑                                    │                   │
+│  │ MySQL Pod: /var/lib/mysql에 마운트        │                   │
+│  │     → Pod이 죽어도 데이터 유지            │                   │
+│  └──────────────────────────────────────────┘                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 4. 전체 요청 흐름 (한 건의 요청)
+
+```
+브라우저: GET http://127.0.0.1/order/list
+
+  ① minikube tunnel
+     → Ingress Controller Pod으로 전달
+
+  ② Ingress Controller (Nginx)
+     → "/order" 경로 확인 → order-svc로 보내기
+
+  ③ order-svc (ClusterIP: 10.96.0.150)
+     → kube-proxy iptables: Pod 3개 중 1개 선택 (round-robin)
+
+  ④ order-blue Pod #2 (10.244.0.20:8080)
+     → 비즈니스 로직 실행
+     → DB 조회 필요: db-svc:3306 으로 요청
+
+  ⑤ db-svc (ClusterIP: 10.96.0.200)
+     → kube-proxy iptables → MySQL Pod
+
+  ⑥ MySQL Pod (10.244.0.50:3306)
+     → SELECT * FROM orders
+     → PVC → PV (hostPath /data/mysql)에서 데이터 읽기
+
+  ⑦ 응답: MySQL → order Pod → Ingress → 브라우저
+```
+
+---
+
+## 외부 진입점: Ingress 앞에 뭘 달아야 하는가?
+
+Ingress Controller는 클러스터 **안의 Pod**이다. 외부에서 이 Pod에 도달하려면 진입점이 필요하다.
+
+### Minikube 환경에서의 선택지
+
+```
+방법 1: minikube tunnel (권장)
+
+  브라우저 → http://127.0.0.1/user
+              │
+              ▼
+  minikube tunnel → Ingress Controller Pod → user-svc → Pod
+  (LoadBalancer 시뮬레이션)
+
+
+방법 2: Ingress Controller의 NodePort 직접 사용
+
+  브라우저 → http://192.168.49.2:30080/user
+              │
+              ▼
+  NodePort :30080 → Ingress Controller Pod → user-svc → Pod
+
+
+방법 3: 개별 디버깅 (port-forward)
+
+  브라우저 → http://localhost:8080
+              │
+              ▼
+  kubectl port-forward svc/user-svc 8080:8080
+  (Ingress 우회, 특정 서비스만 빠르게 확인)
+```
+
+### Ingress Controller에 NodePort를 달아야 하는가?
+
+**직접 달 필요 없다.** `minikube addons enable ingress`를 하면 Ingress Controller가 **이미 NodePort로 노출**된다:
+
+```bash
+kubectl get svc -n ingress-nginx
+
+NAME                       TYPE       PORT(S)
+ingress-nginx-controller   NodePort   80:30080/TCP,443:30443/TCP
+                           ↑ 이미 NodePort로 노출되어 있다!
+```
+
+따라서:
+- `minikube tunnel`을 쓰면 `http://127.0.0.1`로 접근
+- tunnel 없이는 `http://$(minikube ip):30080`으로 접근
+- 둘 다 Ingress Controller를 거쳐 경로 분기됨
+
+---
+
+## 블루-그린 무중단 배포
+
+### 원리
+
+```
+[현재 상태 — Blue가 운영 중]
+
+  user-svc (selector: app=user, slot=blue)
+      │
+      ▼
+  user-blue (Deployment, replicas=3)   user-green (Deployment, replicas=0)
+  ┌───┐┌───┐┌───┐                     (대기 중)
+  │Pod││Pod││Pod│
+  │v1 ││v1 ││v1 │
+  └───┘└───┘└───┘
+
+
+[배포 시작 — Green에 새 버전 띄우기]
+
+  user-svc (selector: app=user, slot=blue)   ← 아직 Blue로 트래픽
+      │
+      ▼
+  user-blue (replicas=3)    user-green (replicas=3)   ← 새 버전 띄움
+  ┌───┐┌───┐┌───┐          ┌───┐┌───┐┌───┐
+  │Pod││Pod││Pod│          │Pod││Pod││Pod│
+  │v1 ││v1 ││v1 │          │v2 ││v2 ││v2 │
+  └───┘└───┘└───┘          └───┘└───┘└───┘
+
+  → Green Pod이 전부 Ready 될 때까지 기다림
+  → Blue에는 여전히 트래픽이 감 (무중단!)
+
+
+[전환 — Service selector를 Green으로 변경]
+
+  user-svc (selector: app=user, slot=green)  ← Green으로 전환!
+                    │
+                    ▼
+  user-blue (replicas=3)    user-green (replicas=3)
+  ┌───┐┌───┐┌───┐          ┌───┐┌───┐┌───┐
+  │Pod││Pod││Pod│          │Pod││Pod││Pod│
+  │v1 ││v1 ││v1 │          │v2 ││v2 ││v2 │
+  └───┘└───┘└───┘          └───┘└───┘└───┘
+  ← 트래픽 없음              ← 트래픽 받는 중
+
+  → 문제 없으면 Blue를 replicas=0으로 축소
+  → 문제 있으면 selector를 다시 Blue로 되돌림 (즉시 롤백)
+```
+
+### 전환 명령어
+
+```bash
+# Green에 새 버전 배포
+kubectl apply -f k8s/user-deploy-green.yml
+
+# Green Pod이 모두 Ready인지 확인
+kubectl rollout status deployment/user-green -n ex10
+
+# 트래픽 전환 (Service selector 변경)
+kubectl patch svc user-svc -n ex10 \
+  -p '{"spec":{"selector":{"app":"user","slot":"green"}}}'
+
+# 확인
+kubectl get endpoints user-svc -n ex10
+
+# 문제 없으면 Blue 축소
+kubectl scale deployment user-blue --replicas=0 -n ex10
+
+# 문제 있으면 즉시 롤백
+kubectl patch svc user-svc -n ex10 \
+  -p '{"spec":{"selector":{"app":"user","slot":"blue"}}}'
+```
+
+---
+
+## 디렉토리 구조
+
+```
+ex10/
+├── ex10.md                    ← 이 문서
+└── k8s/
+    ├── namespace.yml
+    ├── configmap.yml
+    ├── secret.yml
+    ├── db-pv.yml
+    ├── db-pvc.yml
+    ├── db-deploy.yml
+    ├── db-svc.yml
+    ├── user-deploy-blue.yml
+    ├── user-deploy-green.yml
+    ├── user-svc.yml
+    ├── user-hpa.yml
+    ├── delivery-deploy-blue.yml
+    ├── delivery-deploy-green.yml
+    ├── delivery-svc.yml
+    ├── delivery-hpa.yml
+    ├── order-deploy-blue.yml
+    ├── order-deploy-green.yml
+    ├── order-svc.yml
+    ├── order-hpa.yml
+    ├── product-deploy-blue.yml
+    ├── product-deploy-green.yml
+    ├── product-svc.yml
+    ├── product-hpa.yml
+    └── ingress.yml
+```
+
+---
+
+## YAML 전체 매니페스트
+
+### Namespace
+
+```yaml
+# k8s/namespace.yml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ex10
+```
+
+### ConfigMap
+
+```yaml
+# k8s/configmap.yml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: ex10
+data:
+  DB_HOST: "db-svc"
+  DB_PORT: "3306"
+  DB_NAME: "ex10db"
+  SPRING_PROFILES_ACTIVE: "local"
+```
+
+### Secret
+
+```yaml
+# k8s/secret.yml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret
+  namespace: ex10
+type: Opaque
+data:
+  DB_USERNAME: cm9vdA==            # root (base64)
+  DB_PASSWORD: cGFzc3dvcmQxMjM=   # password123 (base64)
+  JWT_SECRET: bXlTZWNyZXRLZXkxMjM0NTY3ODkw   # mySecretKey1234567890 (base64)
+```
+
+### DB — PV / PVC / Deployment / Service
+
+```yaml
+# k8s/db-pv.yml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: db-pv
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /data/mysql           # Minikube 노드 내부 경로
+---
+# k8s/db-pvc.yml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-pvc
+  namespace: ex10
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# k8s/db-deploy.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+  namespace: ex10
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DB_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: DB_NAME
+          volumeMounts:
+            - name: db-storage
+              mountPath: /var/lib/mysql
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+      volumes:
+        - name: db-storage
+          persistentVolumeClaim:
+            claimName: db-pvc
+---
+# k8s/db-svc.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-svc
+  namespace: ex10
+spec:
+  selector:
+    app: db
+  ports:
+    - port: 3306
+      targetPort: 3306
+```
+
+### 마이크로서비스 — user (Blue/Green + Service + HPA)
+
+다른 서비스(delivery, order, product)도 동일한 패턴. 이름과 경로만 다르다.
+
+```yaml
+# k8s/user-deploy-blue.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-blue
+  namespace: ex10
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: user
+      slot: blue
+  template:
+    metadata:
+      labels:
+        app: user
+        slot: blue
+        version: v1
+    spec:
+      containers:
+        - name: user
+          image: metacoding/user-service:1.0
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+# k8s/user-deploy-green.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-green
+  namespace: ex10
+spec:
+  replicas: 0                   # 배포 전까지 0개
+  selector:
+    matchLabels:
+      app: user
+      slot: green
+  template:
+    metadata:
+      labels:
+        app: user
+        slot: green
+        version: v2             # 새 버전
+    spec:
+      containers:
+        - name: user
+          image: metacoding/user-service:2.0    # 새 이미지
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+# k8s/user-svc.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-svc
+  namespace: ex10
+spec:
+  selector:
+    app: user
+    slot: blue                  # ← 현재 Blue에 트래픽. 전환 시 green으로 변경
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# k8s/user-hpa.yml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: user-hpa
+  namespace: ex10
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: user-blue             # 현재 운영 중인 Deployment
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+```
+
+### 나머지 서비스 (delivery, order, product)
+
+user와 동일한 패턴. 이름만 변경:
+
+```yaml
+# k8s/delivery-deploy-blue.yml — user-blue와 동일 패턴
+# name: delivery-blue, app: delivery, image: metacoding/delivery-service:1.0
+
+# k8s/delivery-deploy-green.yml
+# name: delivery-green, app: delivery, image: metacoding/delivery-service:2.0
+
+# k8s/delivery-svc.yml
+# name: delivery-svc, selector: app=delivery, slot=blue
+
+# k8s/delivery-hpa.yml
+# name: delivery-hpa, scaleTargetRef: delivery-blue
+
+# order, product도 동일 패턴
+```
+
+### Ingress
+
+```yaml
+# k8s/ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ex10-ingress
+  namespace: ex10
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /user(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: user-svc
+                port:
+                  number: 8080
+          - path: /delivery(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: delivery-svc
+                port:
+                  number: 8080
+          - path: /order(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: order-svc
+                port:
+                  number: 8080
+          - path: /product(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: product-svc
+                port:
+                  number: 8080
+```
+
+---
+
+## 배포 순서
+
+### 1. 클러스터 준비
+
+```bash
+# Minikube 시작
+minikube start --cpus=4 --memory=8192
+
+# Ingress Controller 설치
+minikube addons enable ingress
+
+# metrics-server 설치 (HPA용)
+minikube addons enable metrics-server
+```
+
+### 2. 기반 리소스 배포
+
+```bash
+kubectl apply -f k8s/namespace.yml
+kubectl apply -f k8s/configmap.yml
+kubectl apply -f k8s/secret.yml
+kubectl apply -f k8s/db-pv.yml
+kubectl apply -f k8s/db-pvc.yml
+kubectl apply -f k8s/db-deploy.yml
+kubectl apply -f k8s/db-svc.yml
+
+# DB Ready 확인
+kubectl get pods -n ex10 -w
+```
+
+### 3. 마이크로서비스 배포 (Blue)
+
+```bash
+# 4개 서비스 Blue Deployment + Service + HPA
+kubectl apply -f k8s/user-deploy-blue.yml
+kubectl apply -f k8s/user-svc.yml
+kubectl apply -f k8s/user-hpa.yml
+
+kubectl apply -f k8s/delivery-deploy-blue.yml
+kubectl apply -f k8s/delivery-svc.yml
+kubectl apply -f k8s/delivery-hpa.yml
+
+kubectl apply -f k8s/order-deploy-blue.yml
+kubectl apply -f k8s/order-svc.yml
+kubectl apply -f k8s/order-hpa.yml
+
+kubectl apply -f k8s/product-deploy-blue.yml
+kubectl apply -f k8s/product-svc.yml
+kubectl apply -f k8s/product-hpa.yml
+
+# Green Deployment도 생성 (replicas=0으로 대기)
+kubectl apply -f k8s/user-deploy-green.yml
+kubectl apply -f k8s/delivery-deploy-green.yml
+kubectl apply -f k8s/order-deploy-green.yml
+kubectl apply -f k8s/product-deploy-green.yml
+```
+
+### 4. Ingress 배포
+
+```bash
+kubectl apply -f k8s/ingress.yml
+```
+
+### 5. 접근 테스트
+
+```bash
+# 방법 A: minikube tunnel (권장)
+minikube tunnel    # 별도 터미널에서 실행
+
+curl http://127.0.0.1/user/health
+curl http://127.0.0.1/delivery/health
+curl http://127.0.0.1/order/health
+curl http://127.0.0.1/product/health
+
+# 방법 B: NodePort 직접
+curl http://$(minikube ip):30080/user/health
+```
+
+### 6. 전체 상태 확인
+
+```bash
+# Pod 확인 (12개 + DB 1개 = 13개)
+kubectl get pods -n ex10
+
+# Service 확인
+kubectl get svc -n ex10
+
+# HPA 확인
+kubectl get hpa -n ex10
+
+# Ingress 확인
+kubectl get ingress -n ex10
+
+# Endpoints 확인 (각 서비스에 3개 Pod IP)
+kubectl get endpoints -n ex10
+```
+
+---
+
+## 블루-그린 배포 실행 예시 (user-service v1 → v2)
+
+```bash
+# 1. Green에 새 이미지 설정 후 replicas 올리기
+kubectl set image deployment/user-green user=metacoding/user-service:2.0 -n ex10
+kubectl scale deployment user-green --replicas=3 -n ex10
+
+# 2. Green Pod 전부 Ready 대기
+kubectl rollout status deployment/user-green -n ex10
+
+# 3. 트래픽 전환 (Blue → Green)
+kubectl patch svc user-svc -n ex10 \
+  -p '{"spec":{"selector":{"app":"user","slot":"green"}}}'
+
+# 4. HPA도 Green으로 변경
+kubectl patch hpa user-hpa -n ex10 \
+  --type='json' \
+  -p='[{"op":"replace","path":"/spec/scaleTargetRef/name","value":"user-green"}]'
+
+# 5. 확인
+kubectl get endpoints user-svc -n ex10
+curl http://127.0.0.1/user/health
+
+# 6-A. 성공 → Blue 축소
+kubectl scale deployment user-blue --replicas=0 -n ex10
+
+# 6-B. 실패 → 즉시 롤백 (Green → Blue)
+kubectl patch svc user-svc -n ex10 \
+  -p '{"spec":{"selector":{"app":"user","slot":"blue"}}}'
+kubectl patch hpa user-hpa -n ex10 \
+  --type='json' \
+  -p='[{"op":"replace","path":"/spec/scaleTargetRef/name","value":"user-blue"}]'
+kubectl scale deployment user-green --replicas=0 -n ex10
+```
+
+---
+
+## 컴포넌트 역할 정리
+
+| 컴포넌트 | 역할 | 자동/수동 |
+|---|---|---|
+| **Namespace** (ex10) | 리소스 격리 | 수동 생성 |
+| **ConfigMap** | DB 호스트, 포트 등 설정값 | 수동 생성 |
+| **Secret** | DB 비밀번호, JWT 키 | 수동 생성 |
+| **PV/PVC** | DB 데이터 영속 저장 | 수동 생성 |
+| **Deployment** (Blue/Green) | Pod 생성/관리, 블루-그린 전환 | 수동 생성 |
+| **ReplicaSet** | replica 수 유지 (셀프힐링) | Deployment가 자동 생성 |
+| **Service** (ClusterIP) | 내부 로드밸런싱 (kube-proxy iptables) | 수동 생성 |
+| **HPA** | CPU 기반 오토스케일링 | 수동 생성 |
+| **Endpoints** | Pod IP 목록 관리 | Endpoints Controller 자동 생성 |
+| **Ingress** | L7 경로 기반 라우팅 | 수동 생성 |
+| **Ingress Controller** | Ingress 규칙 실행 (Nginx Pod) | minikube addons |
+| **metrics-server** | CPU/메모리 수집 (HPA용) | minikube addons |
+
+---
+
+## Service 타입별 내부 구조 — ClusterIP 없이는 아무것도 안 된다
+
+### LoadBalancer를 만들면 안에 뭐가 들어있는가?
+
+LoadBalancer는 **ClusterIP를 포함하는 확장**이다. 따로 만드는 게 아니라 자동으로 층이 쌓인다:
+
+```
+kubectl get svc user-svc
+
+TYPE           CLUSTER-IP     EXTERNAL-IP      PORT(S)
+LoadBalancer   10.96.0.100    a1b2c3.elb.aws   8080:30080/TCP
+               ↑ 자동 생성     ↑ 자동 생성       ↑ 자동 생성
+
+LoadBalancer 1개를 만들면 3개가 한꺼번에 생긴다:
+  ① ClusterIP (10.96.0.100)     → kube-proxy iptables 규칙
+  ② NodePort (30080)            → 모든 노드에 포트 개방
+  ③ 외부 LB (a1b2c3.elb.aws)   → AWS NLB
+
+"ClusterIP와 LoadBalancer 중 하나만 있으면 되나?" → 아니다.
+LoadBalancer 안에 ClusterIP가 포함되어 있다. 둘은 선택이 아니라 포함 관계다.
+```
+
+### 왜 ClusterIP가 반드시 있어야 하는가?
+
+외부 LB(NLB)는 **Node까지만 데려다준다.** Node에 도착한 패킷을 **어느 Pod로 보낼지**는 kube-proxy(ClusterIP iptables 규칙)가 결정한다.
+
+```
+외부 브라우저: GET http://a1b2c3.elb.aws/users
+    │
+    │ ① AWS NLB (L4, TCP)
+    │    역할: "어느 Node로 보낼지" 결정
+    │    Node 3대 중 Node2를 선택
+    │    → Node2:30080으로 전달
+    │
+    ▼
+Node2:30080 (NodePort)
+    │
+    │ ② kube-proxy (ClusterIP의 iptables 규칙)
+    │    역할: "어느 Pod로 보낼지" 결정
+    │    30080 → ClusterIP 10.96.0.100 → Pod 3개 중 선택
+    │    → Pod #2 (10.244.0.7)로 DNAT
+    │
+    ▼
+Pod #2 (10.244.0.7:8080)
+    │
+    ▼
+응답 반환
+```
+
+ClusterIP(kube-proxy iptables 규칙)가 없으면 **Node까지는 왔는데 Pod을 찾을 수 없다.**
+
+### NLB와 kube-proxy는 다른 레벨의 분산을 한다
+
+```
+비유:
+
+  AWS NLB = 건물 안내데스크
+    "손님이 오면 1층, 2층, 3층 중 하나로 안내"
+    (인터넷 → 어느 Node로?)
+
+  kube-proxy = 각 층의 접수 창구
+    "이 층에 도착한 손님을 방A, 방B, 방C 중 하나로 연결"
+    (Node → 어느 Pod로?)
+
+  둘 다 있어야 손님이 최종 목적지(Pod)에 도달한다.
+```
+
+| | AWS NLB (외부 LB) | kube-proxy (ClusterIP) |
+|---|---|---|
+| **분산 대상** | Node | Pod |
+| **질문** | "어느 Node로?" | "어느 Pod로?" |
+| **없으면?** | 외부에서 진입 불가 | Node까지 왔는데 Pod을 못 찾음 |
+| **누가 만듦** | Cloud Controller Manager | kube-proxy가 자동 생성 |
+
+### Service 타입별 포함 관계
+
+```
+LoadBalancer를 만들면:
+┌─────────────────────────────────────────────────┐
+│  ③ 외부 LB (AWS NLB)                            │
+│     역할: 인터넷 → Node 분산                      │
+│     만드는 사람: Cloud Controller Manager          │
+│                                                  │
+│  ┌────────────────────────────────────────────┐  │
+│  │  ② NodePort (30080)                        │  │
+│  │     역할: 모든 Node에 포트 개방              │  │
+│  │     만드는 사람: kube-proxy                  │  │
+│  │                                             │  │
+│  │  ┌───────────────────────────────────────┐  │  │
+│  │  │  ① ClusterIP (10.96.0.100)           │  │  │
+│  │  │     역할: Node → Pod 분산 (iptables)  │  │  │
+│  │  │     만드는 사람: kube-proxy            │  │  │
+│  │  │     ← 이게 없으면 Pod을 못 찾는다!     │  │  │
+│  │  └───────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────┘
+
+ClusterIP만 만들면:
+┌───────────────────────────────────────┐
+│  ① ClusterIP (10.96.0.100)           │
+│     역할: 클러스터 내부에서 Pod 분산   │
+│     외부 접근 불가                     │
+└───────────────────────────────────────┘
+```
+
+---
+
+## 왜 이 프로젝트에서는 ClusterIP를 쓰는가?
+
+```
+❌ 각 서비스를 LoadBalancer로 하면:
+
+  user-svc     (LoadBalancer) → NLB 1개
+  delivery-svc (LoadBalancer) → NLB 1개
+  order-svc    (LoadBalancer) → NLB 1개
+  product-svc  (LoadBalancer) → NLB 1개
+  → 서비스마다 LB가 생김 (비용 폭탄, 관리 복잡)
+  → Minikube에서는 minikube tunnel 4번 필요
+
+
+✅ Ingress + ClusterIP 조합:
+
+  Ingress Controller (1개) → user-svc     (ClusterIP)
+                           → delivery-svc (ClusterIP)
+                           → order-svc    (ClusterIP)
+                           → product-svc  (ClusterIP)
+  → 진입점 1개로 4개 서비스 경로 분기
+  → 내부 로드밸런싱은 kube-proxy가 처리 (ClusterIP로 충분)
+```
+
+Service의 **내부 로드밸런싱** (kube-proxy iptables round-robin)은 ClusterIP에서도 동작한다. LoadBalancer 타입은 **외부 진입점**을 만드는 것이지, 로드밸런싱 자체는 ClusterIP도 한다.
+
+```
+ClusterIP Service의 로드밸런싱:
+
+  user-svc (ClusterIP: 10.96.0.100)
+    │
+    │ kube-proxy iptables (round-robin)
+    │
+    ├── 33% → user-blue Pod #1 (10.244.0.6)
+    ├── 33% → user-blue Pod #2 (10.244.0.7)
+    └── 33% → user-blue Pod #3 (10.244.0.8)
+
+  → LoadBalancer 타입이 아니어도 부하 분산된다!
+```
+
+---
+
+## 전체 트래픽 흐름 (요청 1건)
+
+```
+브라우저: GET http://127.0.0.1/order/list
+    │
+    ▼
+[minikube tunnel]
+    │
+    ▼
+[Ingress Controller — Nginx Pod]
+    │
+    │ "경로가 /order → order-svc로 보내자"
+    │ rewrite: /order/list → /list
+    │
+    ▼
+[order-svc — ClusterIP 10.96.0.150:8080]
+    │
+    │ kube-proxy iptables (DNAT)
+    │ 10.96.0.150 → 10.244.0.20 (round-robin으로 Pod 1개 선택)
+    │
+    ▼
+[order-blue Pod #2 — 10.244.0.20:8080]
+    │
+    │ SELECT * FROM orders
+    │
+    ▼
+[db-svc — ClusterIP 10.96.0.200:3306]
+    │
+    │ kube-proxy iptables (DNAT)
+    │
+    ▼
+[db Pod — 10.244.0.50:3306 + PVC → PV (hostPath)]
+    │
+    ▼
+응답 → order Pod → Ingress → 브라우저
+```
