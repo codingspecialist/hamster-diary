@@ -30,10 +30,10 @@
     },
     {
       "id": "rolling-canary",
-      "title": "Rolling Update & Canary 배포 전략",
+      "title": "Kubernetes Deployment Strategy 정리",
       "date": "2026-04-09",
       "category": "Kubernetes",
-      "summary": "롤링 업데이트, 카나리 배포, 블루-그린 배포 전략의 동작 원리와 비교 분석",
+      "summary": "maxSurge/maxUnavailable 조합별 동작 비교, Rolling·Blue-Green·Recreate·Canary 배포 전략 설정과 요약",
       "filename": "posts/rolling-canary.html",
       "tags": ["kubernetes", "deployment", "rolling-update", "canary"]
     },

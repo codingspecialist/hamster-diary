@@ -1,116 +1,85 @@
-# 롤링 업데이트 & 카나리 배포
+# Kubernetes Deployment Strategy 정리
 
-## 1. 롤링 업데이트 (Rolling Update)
-
-기존 인스턴스를 **한 대씩 순차적으로** 새 버전으로 교체하는 방식.
-
-### 동작 흐름
-
-```
-[v1] [v1] [v1] [v1]   ← 초기 상태
-[v2] [v1] [v1] [v1]   ← 1번 교체
-[v2] [v2] [v1] [v1]   ← 2번 교체
-[v2] [v2] [v2] [v1]   ← 3번 교체
-[v2] [v2] [v2] [v2]   ← 완료
-```
-
-### 핵심 파라미터
+## strategy.rollingUpdate 핵심 파라미터
 
 | 파라미터 | 설명 |
-|---------|------|
-| `maxUnavailable` | 동시에 내릴 수 있는 최대 인스턴스 수 |
-| `maxSurge` | 기존 수 대비 추가로 띄울 수 있는 인스턴스 수 |
-
-### 블루-그린과 비교
-
-| 항목 | 블루-그린 | 롤링 업데이트 |
-|------|----------|--------------|
-| 리소스 사용 | 2배 (구/신 동시 운영) | 기존 + α 수준 |
-| 전환 속도 | 즉시 (LB 스위칭) | 점진적 |
-| 롤백 | 즉시 (구 환경 유지) | 역순 롤링 필요 |
-| 배포 중 상태 | v1 또는 v2만 서빙 | v1, v2 혼재 |
-
-### 롤링 업데이트의 종류
-
-#### 1) 기본 롤링 (Standard Rolling)
-- 한 대씩 순차 교체
-- 가장 안전하지만 느림
-
-#### 2) 배치 롤링 (Batch Rolling)
-- **N대씩 묶어서** 교체 (예: 2대씩)
-- 속도와 안정성의 균형
-
-#### 3) 램프 롤링 (Ramped Rolling)
-- 교체 비율을 **점진적으로 증가** (10% → 25% → 50% → 100%)
-- 초반에 소규모로 검증 후 확대
+|----------|------|
+| `maxSurge` | 업데이트 중 replicas 수 대비 **추가로 생성**할 수 있는 최대 Pod 수 |
+| `maxUnavailable` | 업데이트 중 **동시에 종료**할 수 있는 최대 Pod 수 |
 
 ---
 
-## 2. 카나리 배포 (Canary Deployment)
+## 조합별 동작 비교 (replicas: 4 기준)
 
-새 버전을 **소수의 인스턴스에만** 먼저 배포하고, 문제가 없으면 점차 확대하는 방식.
+| maxSurge | maxUnavailable | 동작 | 최대 Pod 수 | 최소 Pod 수 | 다운타임 |
+|----------|---------------|------|------------|------------|---------|
+| 1 | 0 | 1개 새로 띄우고 Ready 되면 1개 제거 반복 | 5 | 4 | 없음 |
+| 4 | 0 | 신버전 4개 전부 띄운 후 구버전 제거 (Blue-Green) | 8 | 4 | 없음 |
+| 0 | 1 | 1개 죽이고 1개 띄우고 반복 (느린 롤링) | 4 | 3 | 없음 |
+| 4 | 4 | 전부 동시에 죽이고 동시에 생성 | 8 | 0 | 있을 수 있음 |
 
-> 이름 유래: 탄광에서 유독가스 감지용으로 카나리아 새를 보낸 것에서 유래
+---
 
-### 동작 흐름
+## 배포 전략별 설정
 
-```
-단계 1: 트래픽 5%만 v2로
-  [v1] [v1] [v1] [v1] [v1] [v1] [v1] [v1] [v1] [v2]
-                                                 ↑ 카나리
-
-단계 2: 메트릭 확인 (에러율, 응답시간, CPU 등)
-  ✅ 정상 → 비율 확대
-  ❌ 이상 → 즉시 롤백 (카나리만 제거)
-
-단계 3: 점진적 확대
-  5% → 10% → 25% → 50% → 100%
-```
-
-### 카나리 배포의 핵심
-
-- **트래픽 분배**: 로드밸런서(Nginx weight, Istio 등)로 비율 조절
-- **모니터링 필수**: 카나리 인스턴스의 메트릭을 기존과 비교
-- **자동 롤백**: 에러율 임계치 초과 시 자동으로 카나리 제거
-
-### Nginx 가중치 예시
-
-```nginx
-upstream backend {
-    server app-v1:8080 weight=9;   # 90% 트래픽
-    server app-v2:8080 weight=1;   # 10% 트래픽 (카나리)
-}
-```
-
-### Docker Compose 예시
+### 1. Rolling Update (점진적 교체) - 가장 안전
 
 ```yaml
-services:
-  app-v1:
-    image: myapp:1.0
-    deploy:
-      replicas: 9
-
-  app-v2:
-    image: myapp:2.0
-    deploy:
-      replicas: 1    # 카나리 인스턴스
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
 ```
+
+- 구버전과 신버전이 공존하면서 점진적으로 교체
+- 새 Pod가 Ready 되어야 구 Pod 제거 -> 무중단 보장
+- K8s 기본값: `maxSurge: 25%, maxUnavailable: 25%`
+
+### 2. Blue-Green (즉시 전환)
+
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 4        # replicas와 동일
+    maxUnavailable: 0  # 신버전 전부 Ready 될 때까지 구버전 유지
+```
+
+- 신버전 Pod 전체를 먼저 띄운 뒤 구버전을 한꺼번에 제거
+- 순간적으로 Pod가 2배(8개) 존재 -> 리소스 여유 필요
+- 무중단 보장
+
+### 3. Recreate (전체 교체)
+
+```yaml
+strategy:
+  type: Recreate
+```
+
+- 구버전 전부 종료 후 신버전 생성
+- 다운타임 발생
+- `maxSurge: 4, maxUnavailable: 4`도 비슷한 효과
+
+### 4. Canary (소량 먼저 배포)
+
+단일 Deployment의 `maxSurge`/`maxUnavailable`만으로는 구현 불가.
+한번 시작하면 끝까지 진행하기 때문.
+
+#### Canary 구현 방법
+
+| 방법 | 설명 |
+|------|------|
+| Deployment 2개 + Service | stable(4 replicas) + canary(1 replica)를 같은 Service label로 묶음 |
+| Istio / Linkerd | VirtualService로 weight 기반 트래픽 분배 (예: 90:10) |
+| Argo Rollouts | `strategy: canary`로 step별 weight, pause, analysis 지원 |
+| Flagger | 자동 canary 분석 + 점진적 트래픽 이동 |
 
 ---
 
-## 3. 전략 비교 요약
+## 요약
 
-| 항목 | 블루-그린 | 롤링 업데이트 | 카나리 |
-|------|----------|--------------|--------|
-| 리스크 | 낮음 (즉시 롤백) | 중간 | 매우 낮음 |
-| 리소스 비용 | 높음 (2배) | 낮음 | 낮음 |
-| 배포 속도 | 빠름 | 중간 | 느림 |
-| 복잡도 | 낮음 | 낮음 | 높음 (모니터링 필요) |
-| 적합한 상황 | 빠른 전환, 리소스 여유 | 일반적 업데이트 | 위험도 높은 변경 |
-
-### 선택 가이드
-
-- **블루-그린**: 이미 익숙하고, 리소스 여유가 있을 때. 롤백이 가장 깔끔
-- **롤링**: 리소스 절약이 중요하고, 잠깐의 v1/v2 혼재가 허용될 때
-- **카나리**: 대규모 서비스에서 새 버전의 안정성을 실 트래픽으로 검증하고 싶을 때
+- **안전한 무중단**: `maxSurge: 1, maxUnavailable: 0` (Rolling)
+- **빠른 무중단**: `maxSurge: replicas, maxUnavailable: 0` (Blue-Green)
+- **빠른 교체 (다운타임 허용)**: `type: Recreate` 또는 `maxSurge/maxUnavailable` 둘 다 높게
+- **Canary**: 별도 도구(Argo Rollouts, Istio 등) 또는 Deployment 분리 필요
