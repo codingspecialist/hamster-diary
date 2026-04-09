@@ -12,21 +12,123 @@
 kubectl apply -f service.yaml
     │
     ▼
-[API Server] ──── etcd에 Service 오브젝트 저장
+[API Server] ──── etcd에 Service 오���젝트 저장
     │
     │  watch 이벤트 발생
     │
-    ├──────────────────┬──────────────────┐
-    ▼                  ▼                  ▼
-[kube-proxy]    [Cloud Controller    [CoreDNS]
- (모든 Node)     Manager]             (kube-system Pod)
-    │              │                    │
-    │              │                    │
- iptables/IPVS   클라우드 LB 생성       DNS 레코드
- 규칙 생성        (AWS NLB 등)          등록
+    ├──── Endpoints Controller ──── Endpoints 오브젝트 생성/갱신
+    │      (Pod selector 매칭,            │
+    │       Pod IP 목록 수집)              │
+    │                              ┌──────┴──────┐
+    │                              ▼             ▼
+    ├──── kube-proxy ◄── Endpoints watch   CoreDNS ◄── Endpoints watch
+    │     (iptables에 Pod IP 반영)         (Headless일 때 Pod IP 반환)
+    │
+    └──── Cloud Controller Manager
+          (LoadBalancer일 때만 반응)
 ```
 
-3개 컴포넌트가 **독립적으로** API Server를 watch한다. Service type에 따라 **반응하는 컴포넌트가 다르다.**
+4개 컴포넌트가 **독립적으로** API Server를 watch한다. Service type에 따라 **반응하는 컴포넌트가 다르다.**
+
+---
+
+## Pod IP가 바뀌면 누가 알려주는가? — Endpoints Controller
+
+Service를 만들면 iptables 규칙이 생긴다. 그런데 **Pod이 죽고 새로 뜨면 IP가 바뀐다**. 이 변경된 IP를 누가 감지해서 전파하는가?
+
+### Endpoints Controller
+
+**Endpoints Controller**는 kube-controller-manager 안에서 실행되는 컨트롤러다. 하는 일은 단순하다:
+
+1. Service의 `selector`를 본다 (예: `app: backend`)
+2. 그 selector에 매칭되는 **모든 Pod의 IP**를 수집한다
+3. **Endpoints 오브젝트**에 기록한다
+
+```
+Service: backend-service (selector: app=backend)
+    │
+    │ Endpoints Controller가 매칭되는 Pod 수집
+    │
+    ▼
+Endpoints: backend-service
+  - 10.244.0.6:8080  (backend Pod #1)
+  - 10.244.0.8:8080  (backend Pod #2)
+```
+
+Pod이 죽으면 Endpoints에서 제거되고, 새 Pod이 뜨면 Endpoints에 추가된다. 확인 방법:
+
+```bash
+kubectl get endpoints backend-service -n metacoding
+
+NAME              ENDPOINTS                           AGE
+backend-service   10.244.0.6:8080,10.244.0.8:8080     2h
+```
+
+### Endpoints Controller가 관여하는 Service 타입
+
+핵심 조건: **`selector`가 있느냐 없느냐.**
+
+| Service 타입 | selector 유무 | Endpoints Controller | Endpoints 오브젝트 |
+|---|---|---|---|
+| **ClusterIP** | 있음 | Pod IP 수집 → Endpoints 갱신 | 생성됨 |
+| **NodePort** | 있음 | Pod IP 수집 → Endpoints 갱신 | 생성됨 |
+| **LoadBalancer** | 있음 | Pod IP 수집 → Endpoints 갱신 | 생성됨 |
+| **Headless** | 있음 | Pod IP 수집 → Endpoints 갱신 | 생성됨 |
+| **ExternalName** | **없음** | **관여 안 함** | **생성 안 됨** |
+
+ExternalName은 selector가 없다 — 클러스터 내부 Pod을 가리키는 게 아니라 외부 DNS 이름을 가리키기 때문이다. 그래서 Endpoints Controller가 할 일이 없고, Endpoints 오브젝트도 만들어지지 않는다.
+
+나머지 4개 타입은 전부 selector가 있으므로, Pod IP가 ���뀔 때마다 Endpoints Controller가 Endpoints를 갱신하고, 그걸 kube-proxy와 CoreDNS가 각자 watch한다.
+
+```
+Endpoints Controller의 관여 범위:
+
+  ClusterIP ──── Endpoints 갱신 ──→ kube-proxy가 iptables 갱신
+  NodePort ───── Endpoints 갱신 ──→ kube-proxy가 iptables 갱신
+  LoadBalancer ─ Endpoints 갱신 ──→ kube-proxy가 iptables 갱신
+  Headless ───── Endpoints 갱신 ──→ CoreDNS가 Pod IP 목록 갱신
+
+  ExternalName ─ (selector 없음) ──→ Endpoints 자체가 없음
+                                     CoreDNS가 CNAME만 반환
+```
+
+### DNS와 kube-proxy는 독립된 경로다
+
+흔한 오해: "DNS에 등록된 걸 kube-proxy가 받아서 Service한테 전달한다"
+
+**아니다.** DNS와 kube-proxy는 서로 모른다. 둘 다 Endpoints 오브젝트를 **각자** watch할 뿐이다:
+
+```
+[트래픽이 Pod에 도달하는 실제 경로]
+
+일반 Service (ClusterIP/NodePort/LoadBalancer):
+
+  App Pod ─── DNS 질의 ──→ CoreDNS: "ClusterIP가 10.96.0.100이야"
+     │
+     │  패킷: dst=10.96.0.100
+     │
+     ▼
+  kube-proxy iptables: 10.96.0.100 → 10.244.0.6 (DNAT)
+     │
+     ▼
+  backend Pod
+
+
+Headless Service (clusterIP: None):
+
+  App Pod ─── DNS 질의 ──→ CoreDNS: "Pod IP가 10.244.0.6, 10.244.0.8이야"
+     │
+     │  패킷: dst=10.244.0.6 (Pod IP 직접)
+     │
+     ▼
+  backend Pod  (kube-proxy 무관)
+```
+
+**일반 Service**: CoreDNS는 **ClusterIP만 알려준다** (Pod IP를 모른다). kube-proxy가 ClusterIP→Pod IP 변환을 담당한다.
+
+**Headless Service**: CoreDNS가 **Pod IP를 직접 알려준다**. kube-proxy는 관여하지 않는다.
+
+둘 다 Pod IP 정보의 출처는 **Endpoints 오브젝트**이며, 이걸 만드는 건 **Endpoints Controller**다.
 
 ---
 
