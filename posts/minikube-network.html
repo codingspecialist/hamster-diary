@@ -59,12 +59,12 @@
     <p>Kubernetes는 <strong>"IP-per-Pod" 모델</strong>을 사용:</p>
 
     <pre><code>Pod 생성 시:
-  CNI 플러그인 (kindnet/bridge) → Pod에 고유 IP 할당 (10.244.0.x)
+  CNI 플러그인 (kindnet/bridge) &rarr; Pod에 고유 IP 할당 (10.244.0.x)
   각 Pod = 독립된 네트워크 네임스페이스
-  → 자체 IP, 자체 포트 공간</code></pre>
+  &rarr; 자체 IP, 자체 포트 공간</code></pre>
 
     <ul>
-      <li>backend replica 2개 → 각각 다른 Pod IP를 가짐</li>
+      <li>backend replica 2개 &rarr; 각각 다른 Pod IP를 가짐</li>
       <li>같은 포트(8080)를 써도 IP가 다르므로 충돌 없음</li>
     </ul>
 
@@ -88,6 +88,35 @@
       <li>하지만 실제로는 <strong>DNS 이름</strong>으로 접근: <code>backend-service.metacoding.svc.cluster.local</code></li>
       <li>ConfigMap에서 <code>db-service:3306</code>, <code>redis-service:6379</code>로 쓰는 이유가 이것</li>
     </ul>
+
+    <h3>ClusterIP는 왜 Pod와 대역이 다른가?</h3>
+
+    <p>Pod는 죽으면 IP가 바뀐다. ClusterIP는 <strong>"변하지 않는 대표 번호"</strong>:</p>
+
+    <pre><code>frontend Pod &rarr; 10.96.0.100 (backend-service) &larr; 이 IP는 절대 안 바뀜
+                     │
+              kube-proxy (iptables DNAT)
+              가상 IP &rarr; 실제 Pod IP로 변환
+                     │
+              ┌──────┴──────┐
+              ▼             ▼
+        10.244.0.6    10.244.0.8    &larr; 이 IP들은 바뀔 수 있음</code></pre>
+
+    <p>대역을 분리하는 이유:</p>
+
+    <table>
+      <thead>
+        <tr><th></th><th>Pod IP (10.244.x.x)</th><th>Service IP (10.96.x.x)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>할당 주체</td><td>kubelet (Pod 생성 시)</td><td>API server (Service 생성 시)</td></tr>
+        <tr><td>수명</td><td>Pod와 함께 생성/소멸</td><td>Service 삭제 전까지 영구</td></tr>
+        <tr><td>실체</td><td>실제 네트워크 인터페이스(veth)</td><td>iptables 규칙 (가상)</td></tr>
+        <tr><td>충돌 방지</td><td>Pod끼리 겹치면 안 됨</td><td>Pod IP와 겹치면 안 됨</td></tr>
+      </tbody>
+    </table>
+
+    <p>대역이 분리되어야 Pod가 수백 개씩 생겼다 죽어도 Service IP와 충돌하지 않는다.</p>
 
     <h2>IP 대역 정리</h2>
 
@@ -113,15 +142,15 @@
        │
        │ NodePort / kubectl port-forward
        ▼
-[frontend-service] ──→ [frontend Pod :80]
+[frontend-service] ──&rarr; [frontend Pod :80]
        │
        │ HTTP 요청
        ▼
-[backend-service] ──→ [backend Pod #1 :8080]
-       │                [backend Pod #2 :8080]  ← 로드밸런싱
+[backend-service] ──&rarr; [backend Pod #1 :8080]
+       │                [backend Pod #2 :8080]  &larr; 로드밸런싱
        │
-       ├──→ [db-service] ──→ [db Pod :3306]  (MySQL + PV)
-       └──→ [redis-service] ──→ [redis Pod :6379]</code></pre>
+       ├──&rarr; [db-service] ──&rarr; [db Pod :3306]  (MySQL + PV)
+       └──&rarr; [redis-service] ──&rarr; [redis Pod :6379]</code></pre>
 
     <p>모든 Service가 <strong>ClusterIP</strong> 타입이므로, 외부 접근을 위해서는:</p>
     <ul>
@@ -130,13 +159,160 @@
       <li>또는 NodePort/Ingress 설정이 필요</li>
     </ul>
 
+    <h2>Service 종류별 동작 원리</h2>
+
+    <h3>전체 그림: 외부 &rarr; 내부 트래픽 흐름</h3>
+
+    <pre><code>[인터넷]
+    │
+    ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ LoadBalancer (클라우드가 제공하는 외부 LB)                          │
+│ External IP: 52.14.x.x                                          │
+│ ※ kube-proxy 아님! 클라우드 자체 로드밸런서 서버                     │
+└──────────┬───────────────────────────────────────────────────────┘
+           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ Minikube Node (192.168.49.2)                                     │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐     │
+│  │ kube-proxy (iptables 규칙 관리자)                         │     │
+│  │                                                          │     │
+│  │  NodePort 규칙: 192.168.49.2:30080 &rarr; Service             │     │
+│  │  ClusterIP 규칙: 10.96.x.x &rarr; Pod IP들 (DNAT)            │     │
+│  └─────────────────────────────────────────────────────────┘     │
+│                                                                  │
+│  ┌──────────────────┐  ┌──────────────────┐                      │
+│  │ ClusterIP        │  │ Headless Service │                      │
+│  │ 10.96.0.100:8080 │  │ ClusterIP: None  │                      │
+│  │ kube-proxy가 제어 │  │ DNS가 직접 연결   │                      │
+│  └────────┬─────────┘  └───────┬──────────┘                      │
+│           │                    │                                  │
+│    ┌──────┴──────┐      DNS가 Pod IP 목록 직접 반환               │
+│    ▼             ▼             │                                  │
+│  Pod 10.244.0.6  Pod .0.8     ▼                                  │
+│  (backend #1)   (backend #2)  Pod 10.244.0.7 (StatefulSet 등)    │
+└──────────────────────────────────────────────────────────────────┘</code></pre>
+
+    <h3>Service 종류 비교</h3>
+
+    <table>
+      <thead>
+        <tr><th>타입</th><th>접근 범위</th><th>트래픽 처리</th><th>고정 IP</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>ClusterIP</strong></td><td>클러스터 내부만</td><td>kube-proxy (iptables DNAT)</td><td>있음 (10.96.x.x)</td></tr>
+        <tr><td><strong>NodePort</strong></td><td>외부 &rarr; Node IP:Port</td><td>kube-proxy (iptables)</td><td>ClusterIP + NodePort</td></tr>
+        <tr><td><strong>LoadBalancer</strong></td><td>외부 &rarr; 외부 IP</td><td><strong>클라우드 LB</strong> &rarr; NodePort &rarr; kube-proxy</td><td>외부 IP + ClusterIP</td></tr>
+        <tr><td><strong>ExternalName</strong></td><td>클러스터 내부</td><td><strong>DNS CNAME</strong> (kube-proxy 안 씀)</td><td>없음</td></tr>
+        <tr><td><strong>Headless</strong></td><td>클러스터 내부</td><td><strong>DNS 직접 반환</strong> (kube-proxy 안 씀)</td><td>없음 (ClusterIP: None)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1. ClusterIP (기본값) — kube-proxy 제어</h3>
+
+    <pre><code>apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  type: ClusterIP          # 기본값, 생략 가능
+  selector:
+    app: backend
+  ports:
+    - port: 8080
+      targetPort: 8080</code></pre>
+
+    <ul>
+      <li>가상 IP(10.96.x.x)를 iptables 규칙으로 Pod에 연결</li>
+      <li><strong>kube-proxy가 iptables 규칙을 생성/관리</strong></li>
+      <li>클러스터 외부에서 접근 불가</li>
+    </ul>
+
+    <h3>2. NodePort — kube-proxy 제어</h3>
+
+    <pre><code>spec:
+  type: NodePort
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080      # 30000-32767 범위</code></pre>
+
+    <ul>
+      <li>ClusterIP 기능 <strong>포함</strong> + Node IP:30080으로 외부 접근 가능</li>
+      <li><strong>kube-proxy가 NodePort &rarr; ClusterIP &rarr; Pod 전체 iptables 규칙 관리</strong></li>
+      <li><code>192.168.49.2:30080</code> &rarr; <code>10.96.x.x:8080</code> &rarr; <code>10.244.0.6:8080</code></li>
+    </ul>
+
+    <h3>3. LoadBalancer — 클라우드 자체 서버 + kube-proxy</h3>
+
+    <pre><code>spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8080</code></pre>
+
+    <ul>
+      <li><strong>클라우드 제공자(AWS ALB/NLB, GCP LB)</strong>가 외부 IP를 할당하고 자체 서버로 로드밸런싱</li>
+      <li>클라우드 LB &rarr; NodePort &rarr; kube-proxy &rarr; Pod</li>
+      <li>kube-proxy는 <strong>Node 내부 구간만</strong> 담당, 외부 LB는 클라우드가 관리</li>
+      <li>Minikube에서는 <code>minikube tunnel</code>로 시뮬레이션</li>
+    </ul>
+
+    <h3>4. ExternalName — kube-proxy 사용 안 함</h3>
+
+    <pre><code>spec:
+  type: ExternalName
+  externalName: my-database.aws.amazon.com</code></pre>
+
+    <ul>
+      <li>iptables 규칙 없음, ClusterIP 없음</li>
+      <li><strong>CoreDNS가 CNAME 레코드만 반환</strong> &rarr; 클러스터 내부에서 외부 서비스를 DNS 별칭으로 접근</li>
+      <li>용도: 외부 DB나 API를 Service 이름으로 추상화</li>
+    </ul>
+
+    <h3>5. Headless Service — kube-proxy 사용 안 함</h3>
+
+    <pre><code>spec:
+  clusterIP: None           # 핵심: ClusterIP를 명시적으로 None
+  selector:
+    app: db
+  ports:
+    - port: 3306</code></pre>
+
+    <ul>
+      <li>ClusterIP 없음 &rarr; kube-proxy가 관여하지 않음</li>
+      <li><strong>DNS 조회 시 Pod IP 목록을 직접 반환</strong> (A 레코드)</li>
+      <li>StatefulSet과 함께 사용 &rarr; 각 Pod에 고유 DNS: <code>db-0.db-service</code>, <code>db-1.db-service</code></li>
+      <li>용도: 클라이언트가 직접 Pod를 선택해야 할 때 (DB 리더/팔로워 등)</li>
+    </ul>
+
+    <h2>kube-proxy 정리</h2>
+
+    <pre><code>kube-proxy의 역할:
+  Service 생성 감지 &rarr; iptables 규칙 자동 생성/갱신
+  Pod 추가/삭제 감지 &rarr; 라우팅 대상 자동 업데이트</code></pre>
+
+    <table>
+      <thead>
+        <tr><th>kube-proxy가 제어</th><th>kube-proxy 안 씀</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>ClusterIP</td><td>ExternalName (DNS CNAME)</td></tr>
+        <tr><td>NodePort</td><td>Headless (DNS A 레코드)</td></tr>
+        <tr><td>LoadBalancer (Node 내부 구간)</td><td>LoadBalancer (외부 LB 구간)</td></tr>
+      </tbody>
+    </table>
+
     <h2>핵심 요약</h2>
 
     <ol>
-      <li><strong>192.168.49.x</strong> = Minikube 노드(가상머신) IP. Host↔Minikube 통신용</li>
+      <li><strong>192.168.49.x</strong> = Minikube 노드(가상머신) IP. Host&harr;Minikube 통신용</li>
       <li><strong>10.244.0.x</strong> = Pod IP. Pod마다 다름. 클러스터 내부 전용</li>
-      <li><strong>10.96.x.x</strong> = Service ClusterIP. Pod IP를 추상화하여 안정적 접근점 제공</li>
-      <li>Pod끼리는 Service DNS(<code>db-service:3306</code>)로 통신 → Pod IP 변경에 영향 안 받음</li>
+      <li><strong>10.96.x.x</strong> = Service ClusterIP. Pod IP를 추상화하여 안정적 접근점 제공. 대역이 다른 이유는 Pod와 독립적으로 관리하기 위함</li>
+      <li>Pod끼리는 Service DNS(<code>db-service:3306</code>)로 통신 &rarr; Pod IP 변경에 영향 안 받음</li>
+      <li><strong>kube-proxy</strong> = ClusterIP/NodePort의 iptables 규칙 관리자. 모든 Service를 제어하는 것은 아님</li>
+      <li><strong>ExternalName/Headless</strong> = DNS 기반으로 동작, kube-proxy 없이 CoreDNS가 직접 처리</li>
     </ol>
   </div>
 </article>

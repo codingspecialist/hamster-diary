@@ -51,9 +51,9 @@
       "title": "Minikube 내부 네트워크 구조",
       "date": "2026-04-09",
       "category": "Kubernetes",
-      "summary": "Host IP, Node IP, Pod IP, ClusterIP — Minikube의 3계층 IP 구조와 Service 네트워크 흐름 설명",
+      "summary": "3계층 IP 구조, ClusterIP 대역 분리 이유, Service 5종류(ClusterIP/NodePort/LoadBalancer/ExternalName/Headless)와 kube-proxy 관계 총정리",
       "filename": "posts/minikube-network.html",
-      "tags": ["kubernetes", "minikube", "networking", "service"]
+      "tags": ["kubernetes", "minikube", "networking", "service", "kube-proxy"]
     },
     {
       "id": "kubectl-cheatsheet",
