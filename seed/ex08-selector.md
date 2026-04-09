@@ -403,6 +403,128 @@ Service = 급식실
 
 ---
 
+## HPA는 자동으로 생기지 않는다
+
+Deployment에 `replicas: 3`을 설정하면 ReplicaSet이 3개를 유지해준다. 하지만 **부하에 따라 자동으로 늘리고 줄이는 오토스케일링은 별도로 설정해야 한다.**
+
+### Deployment만 있을 때 vs HPA를 추가했을 때
+
+```
+Deployment만 있을 때:
+
+  replicas: 3 (고정)
+  │
+  ▼
+  ReplicaSet: "항상 3개 유지"
+  │
+  ├── Pod 죽음 → 새로 만들어서 3개 복구 (셀프힐링)
+  └── 트래픽 폭주 → 여전히 3개 (스케일링 안 함!)
+
+
+HPA를 추가했을 때:
+
+  HPA: "CPU 50% 넘으면 늘려, min=3 max=10"
+  │
+  │ metrics-server에서 CPU/메모리 수집
+  │
+  ▼
+  Deployment의 replicas를 3→5→8 자동 변경
+  │
+  ▼
+  ReplicaSet: "8개 유지" → Pod 추가 생성
+  │
+  │ 부하 줄면
+  ▼
+  HPA: replicas를 8→5→3 자동 축소
+```
+
+### HPA 생성 방법
+
+**방법 1: 명령어**
+
+```bash
+kubectl autoscale deployment nginx-v1 \
+  --cpu-percent=50 \
+  --min=3 \
+  --max=10 \
+  -n metacoding
+```
+
+**방법 2: YAML**
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nginx-v1-hpa
+  namespace: metacoding
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx-v1            # ← 이 Deployment의 replicas를 조절
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50    # CPU 평균 50% 넘으면 스케일 아웃
+```
+
+### 전제 조건: metrics-server
+
+HPA가 동작하려면 **metrics-server**가 클러스터에 설치되어 있어야 한다. metrics-server가 각 Pod의 CPU/메모리 사용량을 수집하고, HPA Controller가 이 데이터를 보고 판단한다.
+
+```
+metrics-server 없으면:
+  HPA → "CPU 사용량을 모르겠다" → 스케일링 불가
+
+metrics-server 있으면:
+  metrics-server → kubelet에서 Pod 메트릭 수집
+       │
+       ▼
+  HPA Controller → "현재 CPU 평균 78%? 50% 목표 대비 높다 → 스케일 아웃"
+       │
+       ▼
+  Deployment replicas 변경 → ReplicaSet → Pod 추가
+```
+
+```bash
+# Minikube에서 metrics-server 활성화
+minikube addons enable metrics-server
+
+# EKS에서는 기본 설치되어 있거나, Helm으로 설치
+helm install metrics-server metrics-server/metrics-server -n kube-system
+
+# 확인
+kubectl top pods -n metacoding
+```
+
+### 자동으로 생기는 것 vs 직접 만들어야 하는 것
+
+| 리소스 | 자동 생성? | 누가 만드나 |
+|---|---|---|
+| **ReplicaSet** | ✅ 자동 | Deployment가 자동 생성 |
+| **Endpoints** | ✅ 자동 | Endpoints Controller가 자동 생성 |
+| **HPA** | ❌ 수동 | `kubectl autoscale` 또는 HPA YAML로 직접 생성 |
+| **metrics-server** | ❌ 수동 | 클러스터에 별도 설치 필요 (EKS는 보통 기본 포함) |
+
+```
+Deployment를 만들면 자동으로 따라오는 것:
+  ✅ ReplicaSet (Deployment Controller가 생성)
+  ✅ Pod (ReplicaSet이 생성)
+  ✅ Endpoints (Endpoints Controller가 생성, Service 있을 때)
+
+직접 만들어야 오토스케일링이 되는 것:
+  ❌ HPA (별도 리소스, kubectl autoscale 또는 YAML)
+  ❌ metrics-server (클러스터 애드온, 별도 설치)
+```
+
+---
+
 ## 정리
 
 | 구분 | selector 역할 | 라벨 범위 | 뒤에서 작동하는 컨트롤러 |
