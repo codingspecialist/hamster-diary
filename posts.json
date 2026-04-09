@@ -24,9 +24,9 @@
       "title": "Kubernetes Selector 깊이 이해하기",
       "date": "2026-04-09",
       "category": "Kubernetes",
-      "summary": "Deployment와 Service의 selector 동작 원리, 겹침 문제, 카나리 배포에서의 활용법 정리",
+      "summary": "Deployment와 Service의 selector 동작 원리, 겹침 문제, 카나리 배포 활용법, 그리고 같은 selector로 상태관리·트래픽·오토스케일링을 나눠 맡는 컨트롤러 역할 비교",
       "filename": "posts/k8s-selector.html",
-      "tags": ["kubernetes", "selector", "canary", "deployment"]
+      "tags": ["kubernetes", "selector", "canary", "deployment", "hpa", "endpoints"]
     },
     {
       "id": "rolling-canary",

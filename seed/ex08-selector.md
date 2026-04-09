@@ -303,11 +303,113 @@ spec:
 
 ---
 
+## Selector가 같아도 하는 일이 다르다 — Deployment vs Service 역할 비교
+
+Deployment와 Service 둘 다 selector로 Pod을 찾는다. 하지만 **찾은 다음에 하는 일**이 완전히 다르다.
+
+### 전체 구조: 누가 뭘 하는가
+
+```
+kubectl apply
+    │
+    ▼
+[API Server]
+    │
+    ├──── Deployment Controller (kube-controller-manager 안)
+    │         │
+    │         │ selector로 Pod 찾기 → "내 Pod이 몇 개지?"
+    │         │
+    │         ▼
+    │     ReplicaSet 생성/관리
+    │         │
+    │         ├── replica 수 유지 (Pod 죽으면 재생성)
+    │         ├── Rolling Update (새 ReplicaSet으로 점진 교체)
+    │         └── Rollback (이전 ReplicaSet으로 복귀)
+    │
+    ├──── Endpoints Controller (kube-controller-manager 안)
+    │         │
+    │         │ Service의 selector로 Pod 찾기 → "IP가 뭐지?"
+    │         │
+    │         ▼
+    │     Endpoints 오브젝트 갱신
+    │         │
+    │         ├── kube-proxy → iptables 규칙 갱신 (트래픽 라우팅)
+    │         └── CoreDNS → DNS 응답 갱신
+    │
+    └──── HPA Controller (Horizontal Pod Autoscaler)
+              │
+              │ Deployment의 metrics 확인 → "CPU가 80% 넘었나?"
+              │
+              ▼
+          Deployment의 replicas 수 변경
+              → Deployment Controller가 Pod 추가/제거
+```
+
+### 역할 비교표
+
+| 구분 | Deployment의 selector | Service의 selector |
+|---|---|---|
+| **목적** | "이 Pod들의 **상태를 관리**해라" | "이 Pod들에게 **트래픽을 보내**라" |
+| **찾은 뒤 하는 일** | replica 수 유지, 업데이트, 롤백 | Pod IP 수집 → Endpoints → iptables |
+| **실행 주체** | Deployment Controller → ReplicaSet | Endpoints Controller → kube-proxy |
+| **Pod 죽었을 때** | 새 Pod 재생성 (상태 복구) | Endpoints에서 제거 (트래픽 차단) |
+| **스케일링** | HPA가 replicas 변경 → Pod 추가/제거 | 관여 안 함 (Pod 수는 모른다) |
+| **업데이트** | Rolling Update (이미지 교체) | 관여 안 함 (버전은 모른다) |
+| **롤백** | 이전 ReplicaSet으로 복귀 | 관여 안 함 |
+
+### 같은 Pod, 다른 관심사
+
+```
+Pod이 죽었을 때:
+
+  Deployment Controller: "내 Pod이 3개여야 하는데 2개밖에 없다 → 1개 새로 만들자"
+                         (상태 복구)
+
+  Endpoints Controller:  "죽은 Pod IP를 Endpoints에서 빼자"
+           → kube-proxy: "iptables에서 그 IP 제거"
+                         (트래픽 차단)
+
+  둘 다 같은 Pod을 selector로 찾지만, 반응이 다르다.
+```
+
+```
+HPA가 스케일 아웃할 때:
+
+  HPA:                   "CPU 80% 초과 → replicas 3→5로 변경"
+  Deployment Controller: "Pod 2개 추가 생성"
+  Endpoints Controller:  "새 Pod 2개의 IP를 Endpoints에 추가"
+           → kube-proxy: "iptables에 새 IP 2개 추가"
+
+  Deployment 쪽 체인이 Pod을 만들고,
+  Service 쪽 체인이 트래픽을 연결한다.
+```
+
+### 비유: 학교로 다시 보기
+
+```
+Deployment = 담임선생님
+  - 출석 체크 (replica 수 확인)
+  - 학생 빠지면 전학생 데려옴 (Pod 재생성)
+  - 교과서 바꿈 (Rolling Update)
+  - 교과서 원복 (Rollback)
+  - 학급 정원 조절 (HPA 스케일링)
+
+Service = 급식실
+  - 학생 명단(Endpoints)만 관리
+  - 명단에 있는 학생에게만 밥 배급 (트래픽 전달)
+  - 전학 간 학생은 명단에서 삭제 (죽은 Pod 제거)
+  - 교과서가 뭔지, 정원이 몇 명인지 모름 (버전/스케일 무관)
+```
+
+---
+
 ## 정리
 
-| 구분 | selector 역할 | 라벨 범위 |
-|---|---|---|
-| Deployment | 자기 Pod만 관리 | 좁게 (app + version) |
-| Service | 트래픽 보낼 Pod 선택 | 넓게 (app만) |
+| 구분 | selector 역할 | 라벨 범위 | 뒤에서 작동하는 컨트롤러 |
+|---|---|---|---|
+| Deployment | 자기 Pod만 관리 (상태) | 좁게 (app + version) | Deployment Controller → ReplicaSet |
+| Service | 트래픽 보낼 Pod 선택 | 넓게 (app만) | Endpoints Controller → kube-proxy |
+| HPA | 스케일 대상 지정 | Deployment를 직접 지정 | HPA Controller → Deployment replicas 변경 |
 
 > selector = "이 이름표 조합을 가진 Pod만 내 것이다"
+> 하지만 **Deployment는 상태를 관리**하고, **Service는 트래픽을 연결**한다. 같은 selector, 다른 책임.
