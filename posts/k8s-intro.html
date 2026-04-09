@@ -1,0 +1,667 @@
+<article>
+  <header class="post-header">
+    <h1 class="post-title">Kubernetes 핵심 개념 총정리</h1>
+    <div class="post-meta">
+      <time>2026-04-09</time>
+      <span class="category-tag">Kubernetes</span>
+    </div>
+  </header>
+
+  <div class="post-content">
+    <h2>1. 쿠버네티스(Kubernetes)란?</h2>
+
+    <p>쿠버네티스(K8s)는 <strong>컨테이너 오케스트레이션</strong> 플랫폼이다. 여러 개의 컨테이너를 자동으로 배포, 확장, 관리해주는 시스템이다.</p>
+
+    <h3>Docker Compose vs Kubernetes</h3>
+
+    <table>
+      <thead>
+        <tr><th>항목</th><th>Docker Compose</th><th>Kubernetes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>목적</td><td>단일 서버에서 멀티 컨테이너 실행</td><td>여러 서버(클러스터)에서 컨테이너 관리</td></tr>
+        <tr><td>규모</td><td>개발/테스트 환경</td><td>프로덕션 대규모 환경</td></tr>
+        <tr><td>자동 복구</td><td>없음 (컨테이너 죽으면 수동 재시작)</td><td>자동 복구 (Pod가 죽으면 자동 재생성)</td></tr>
+        <tr><td>스케일링</td><td>수동 (<code>scale</code> 명령)</td><td>자동/수동 스케일링 지원</td></tr>
+        <tr><td>로드밸런싱</td><td>직접 설정 (Nginx 등)</td><td>Service가 자동으로 로드밸런싱</td></tr>
+        <tr><td>롤링 업데이트</td><td>미지원</td><td>무중단 배포 지원</td></tr>
+      </tbody>
+    </table>
+
+    <p><strong>한 줄 요약</strong>: Docker Compose는 "한 대의 컴퓨터에서 여러 컨테이너 실행", K8s는 "여러 대의 컴퓨터에서 컨테이너를 자동 관리"</p>
+
+    <h2>2. 핵심 개념</h2>
+
+    <h3>Cluster와 Node</h3>
+
+    <pre><code>┌─────────────────────────────────────────────┐
+│                  Cluster                     │
+│  ┌───────────────┐  ┌───────────────┐       │
+│  │  Master Node  │  │  Worker Node  │       │
+│  │  (제어 담당)   │  │  (실행 담당)   │       │
+│  │  - API Server │  │  - Pod 실행    │       │
+│  │  - Scheduler  │  │  - 컨테이너 관리│       │
+│  └───────────────┘  └───────────────┘       │
+└─────────────────────────────────────────────┘</code></pre>
+
+    <ul>
+      <li><strong>Cluster</strong>: 쿠버네티스가 관리하는 서버들의 집합</li>
+      <li><strong>Master Node</strong>: 클러스터를 제어하는 노드 (명령을 받고 스케줄링)</li>
+      <li><strong>Worker Node</strong>: 실제 컨테이너(Pod)가 실행되는 노드</li>
+    </ul>
+
+    <h3>Pod</h3>
+
+    <ul>
+      <li>쿠버네티스의 <strong>최소 배포 단위</strong></li>
+      <li>하나 이상의 컨테이너를 포함</li>
+      <li>같은 Pod 안의 컨테이너는 네트워크와 저장소를 공유</li>
+      <li>Docker의 컨테이너 1개 = K8s의 Pod 1개라고 이해하면 쉽다</li>
+    </ul>
+
+    <h3>Deployment</h3>
+
+    <ul>
+      <li>Pod를 <strong>선언적으로 관리</strong>하는 리소스</li>
+      <li><code>replicas: 2</code>로 설정하면 항상 2개의 Pod를 유지</li>
+      <li>Pod가 죽으면 자동으로 새 Pod를 생성 (자동 복구)</li>
+      <li>롤링 업데이트로 무중단 배포 가능</li>
+    </ul>
+
+    <pre><code># 예시: backend-deploy.yml
+spec:
+  replicas: 2        # 항상 2개의 Pod 유지
+  selector:
+    matchLabels:
+      app: backend   # 이 라벨을 가진 Pod를 관리</code></pre>
+
+    <h3>Service</h3>
+
+    <ul>
+      <li>Pod에 접근하기 위한 <strong>고정 네트워크 엔드포인트</strong></li>
+      <li>Pod는 생성/삭제될 때마다 IP가 바뀌지만, Service는 고정된 이름으로 접근 가능</li>
+      <li><code>backend-service:8080</code>처럼 이름으로 다른 Pod에서 접근</li>
+    </ul>
+
+    <pre><code># 예시: backend-service.yml
+spec:
+  selector:
+    app: backend     # app=backend 라벨의 Pod들에게 트래픽 전달
+  ports:
+    - port: 8080     # Service 포트
+      targetPort: 8080  # Pod 컨테이너 포트</code></pre>
+
+    <h3>Namespace</h3>
+
+    <ul>
+      <li>리소스를 <strong>논리적으로 격리</strong>하는 가상 클러스터</li>
+      <li>같은 클러스터 안에서 팀별, 환경별로 구분 가능</li>
+      <li>이 실습에서는 <code>metacoding</code> 네임스페이스를 사용</li>
+    </ul>
+
+    <h4>Linux Namespace → Docker → Kubernetes Namespace의 관계</h4>
+
+    <p>"Namespace"라는 이름이 같지만, 각 계층에서 <strong>격리하는 대상</strong>이 다르다. 핵심은 <strong>리눅스 커널의 Namespace 기술이 모든 것의 출발점</strong>이라는 것이다.</p>
+
+    <pre><code>┌─────────────────────────────────────────────────────────────────────┐
+│                        Linux Kernel                                 │
+│                                                                     │
+│  Namespace (커널 기능) ── OS 자원을 격리하는 기술                      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
+│  │   PID    │ │   NET    │ │   MNT    │ │   UTS    │ │   IPC    │  │
+│  │ 프로세스  │ │ 네트워크  │ │ 파일시스템│ │ 호스트명  │ │ 프로세스  │  │
+│  │  격리    │ │  격리    │ │  격리    │ │  격리    │ │ 통신 격리 │  │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
+│       │                                                             │
+│       ▼                                                             │
+│  ┌─────────────────────────────────────────────┐                    │
+│  │            Docker가 이 기술을 사용             │                    │
+│  │                                             │                    │
+│  │  컨테이너 A (PID/NET/MNT 격리)               │                    │
+│  │  컨테이너 B (PID/NET/MNT 격리)  ← OS 수준 격리│                    │
+│  │  컨테이너 C (PID/NET/MNT 격리)               │                    │
+│  └─────────────────────────────────────────────┘                    │
+│       │                                                             │
+│       ▼                                                             │
+│  ┌─────────────────────────────────────────────┐                    │
+│  │       Kubernetes Namespace                   │                    │
+│  │                                             │                    │
+│  │  NS: dev    (Pod A, Service A)              │                    │
+│  │  NS: prod   (Pod B, Service B)  ← 논리적 격리│                    │
+│  │  NS: test   (Pod C, Service C)              │                    │
+│  └─────────────────────────────────────────────┘                    │
+└─────────────────────────────────────────────────────────────────────┘</code></pre>
+
+    <h4>3가지 Namespace 비교</h4>
+
+    <table>
+      <thead>
+        <tr><th>항목</th><th>Linux Namespace</th><th>Docker (Linux NS 활용)</th><th>Kubernetes Namespace</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>격리 대상</strong></td><td>OS 자원 (PID, 네트워크, 파일시스템)</td><td>컨테이너별 OS 환경</td><td>K8s 리소스 (Pod, Service 등)</td></tr>
+        <tr><td><strong>격리 수준</strong></td><td><strong>커널 수준</strong> (진짜 격리)</td><td><strong>OS 수준</strong> (프로세스 격리)</td><td><strong>논리적</strong> (이름 구분)</td></tr>
+        <tr><td><strong>목적</strong></td><td>하나의 OS에서 독립된 환경 생성</td><td>앱마다 독립된 실행 환경 제공</td><td>클러스터 안에서 팀/환경별 구분</td></tr>
+        <tr><td><strong>보안 격리</strong></td><td>강함 (커널이 차단)</td><td>강함 (Linux NS + cgroups)</td><td>약함 (네트워크 정책 별도 설정 필요)</td></tr>
+      </tbody>
+    </table>
+
+    <h4>예시로 이해하기</h4>
+
+    <pre><code>[ 하나의 리눅스 서버 ]
+
+# ── Linux Namespace ──
+# PID Namespace: 컨테이너 안에서 ps 치면 자기 프로세스만 보인다
+# NET Namespace: 컨테이너마다 독립된 IP, 포트를 가진다
+# MNT Namespace: 컨테이너마다 독립된 파일시스템을 가진다
+
+# ── Docker가 Linux Namespace를 조합해서 컨테이너를 만든다 ──
+docker run nginx    → Linux의 PID + NET + MNT Namespace 조합으로 격리된 환경 생성
+docker run mysql    → 또 다른 Namespace 조합 → nginx와 완전히 격리됨
+
+# ── Kubernetes Namespace는 "이름표"로 구분하는 것 ──
+kubectl create ns dev     → dev 이름표가 붙은 공간
+kubectl create ns prod    → prod 이름표가 붙은 공간
+# 같은 이름의 Service를 각 Namespace에 만들 수 있다
+# dev/backend-service와 prod/backend-service는 서로 다른 리소스</code></pre>
+
+    <p><strong>핵심 차이</strong>: Linux Namespace는 <strong>"벽을 세워서 진짜 못 보게"</strong> 하는 것이고, K8s Namespace는 <strong>"폴더를 나눠서 정리"</strong> 하는 것이다. Docker는 Linux Namespace를 사용해서 컨테이너라는 격리 환경을 만들고, K8s는 그 컨테이너(Pod)들을 논리적으로 그룹핑하는 데 Namespace를 사용한다.</p>
+
+    <h3>ConfigMap과 Secret</h3>
+
+    <ul>
+      <li><strong>ConfigMap</strong>: 민감하지 않은 설정값 저장 (DB URL, 포트 등)</li>
+      <li><strong>Secret</strong>: 민감한 정보 저장 (비밀번호, 인증키 등)</li>
+      <li>환경변수로 Pod에 주입하여 이미지와 설정을 분리</li>
+    </ul>
+
+    <pre><code># ConfigMap 예시 - 일반 설정
+data:
+  SPRING_DATASOURCE_URL: jdbc:mysql://db-service:3306/metadb
+  SPRING_DATA_REDIS_HOST: redis-service
+
+# Secret 예시 - 민감한 정보
+stringData:
+  SPRING_DATASOURCE_USERNAME: metacoding
+  SPRING_DATASOURCE_PASSWORD: metacoding1234</code></pre>
+
+    <h3>PersistentVolume (PV)와 PersistentVolumeClaim (PVC)</h3>
+
+    <ul>
+      <li>Pod는 삭제되면 내부 데이터도 사라진다</li>
+      <li><strong>PV</strong>: 클러스터에 미리 만들어둔 저장 공간 (관리자가 생성)</li>
+      <li><strong>PVC</strong>: Pod가 저장 공간을 요청하는 것 (개발자가 생성)</li>
+      <li>DB처럼 데이터가 유지되어야 하는 서비스에 필수</li>
+    </ul>
+
+    <pre><code>PV (1Gi 저장소 생성) ←── PVC (1Gi 요청) ←── Pod (마운트하여 사용)</code></pre>
+
+    <h3>kubectl</h3>
+
+    <ul>
+      <li>쿠버네티스 클러스터를 제어하는 <strong>CLI 도구</strong></li>
+      <li><code>kubectl apply</code>, <code>kubectl get</code>, <code>kubectl logs</code> 등의 명령어로 리소스를 관리</li>
+    </ul>
+
+    <h2>3. Minikube란?</h2>
+
+    <ul>
+      <li>로컬 환경에서 <strong>싱글 노드 쿠버네티스 클러스터</strong>를 실행하는 도구</li>
+      <li>실제 프로덕션에서는 여러 Node를 사용하지만, 학습/테스트 목적으로 1대의 컴퓨터에서 K8s를 체험</li>
+      <li>Master Node와 Worker Node가 하나의 VM(또는 컨테이너) 안에서 동작</li>
+    </ul>
+
+    <h3>노드(Node)란?</h3>
+
+    <p>노드는 <strong>쿠버네티스가 Pod를 실행하는 서버(컴퓨터) 1대</strong>를 말한다. 물리 서버든 VM이든 상관없다.</p>
+
+    <table>
+      <thead>
+        <tr><th>노드 종류</th><th>역할</th><th>비유</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Master Node (Control Plane)</strong></td><td>클러스터 전체를 관리, 명령을 받고 스케줄링</td><td>식당 <strong>매니저</strong> — 주문 접수, 요리사 배치, 상황 판단</td></tr>
+        <tr><td><strong>Worker Node</strong></td><td>실제 Pod(컨테이너)를 실행하는 곳</td><td>식당 <strong>요리사</strong> — 실제 요리(앱)를 만드는 사람</td></tr>
+      </tbody>
+    </table>
+
+    <pre><code>Master Node가 하는 일:
+  ├── API Server     → kubectl 명령을 받는 창구
+  ├── Scheduler      → "이 Pod는 어느 Worker에서 실행할까?" 결정
+  ├── Controller     → "replicas: 2인데 1개 죽었네? 1개 더 만들어!" 자동 복구
+  └── etcd           → 클러스터 상태를 저장하는 DB
+
+Worker Node가 하는 일:
+  ├── kubelet        → Master 명령을 받아서 Pod를 실행/관리
+  ├── Container Runtime (Docker 등) → 실제 컨테이너를 실행
+  └── kube-proxy     → Pod 간 네트워크 통신 처리</code></pre>
+
+    <h3>왜 여러 노드를 사용하는가?</h3>
+
+    <p><strong>이유 1: 고가용성 (서버가 죽어도 서비스 유지)</strong></p>
+
+    <pre><code>Worker Node 1개만 있을 때 (Minikube):
+  Worker Node 1 [Pod A, Pod B, Pod C]
+       ↓ 서버 고장!
+  전체 서비스 중단
+
+Worker Node 여러 개일 때 (프로덕션):
+  Worker Node 1 [Pod A, Pod B]  ← 이 서버가 고장나도
+  Worker Node 2 [Pod A, Pod C]  ← 여기서 계속 서비스!
+  Worker Node 3 [Pod B, Pod C]  ← 여기서도 계속 서비스!
+  → K8s가 자동으로 죽은 Pod를 다른 Node에 재생성</code></pre>
+
+    <p><strong>이유 2: 부하 분산 (트래픽을 나눠서 처리)</strong></p>
+
+    <pre><code>사용자 1000명이 동시 접속:
+
+Node 1개: 한 서버가 전부 처리 → 서버 과부하 → 느려짐
+Node 3개: 각 서버가 ~333명씩 처리 → 쾌적
+
+쉬운 예시:
+  식당에 요리사 1명 → 주문 100개 밀림 (Minikube)
+  식당에 요리사 5명 → 주문 100개를 나눠서 처리 (프로덕션)</code></pre>
+
+    <p><strong>이유 3: 장애 격리 (문제가 퍼지지 않음)</strong></p>
+
+    <pre><code>Node 1에서 메모리 누수 발생:
+  Node 1 [Backend Pod - 메모리 폭주]  ← 이 Node만 영향
+  Node 2 [DB Pod - 정상]             ← 다른 Node는 무관
+  Node 3 [Frontend Pod - 정상]       ← 다른 Node는 무관
+
+1개 Node였다면?
+  Node 1 [Backend + DB + Frontend]  ← 전부 죽음</code></pre>
+
+    <h3>싱글 노드 vs 멀티 노드 아키텍처 비교</h3>
+
+    <p><strong>Minikube (싱글 노드) — 학습용</strong></p>
+
+    <pre><code>┌─────────────────────────────────────────────┐
+│           내 컴퓨터 (1대)                     │
+│                                             │
+│  ┌────────────────────────────────────────┐ │
+│  │   Minikube VM (Master + Worker 합체)   │ │
+│  │                                        │ │
+│  │   [Master 역할]  [Worker 역할]          │ │
+│  │   API Server     Pod: Frontend         │ │
+│  │   Scheduler      Pod: Backend x2       │ │
+│  │   Controller     Pod: DB               │ │
+│  │   etcd           Pod: Redis            │ │
+│  │                                        │ │
+│  │   → 전부 한 곳에서 실행 (장애 = 전체 중단)│ │
+│  └────────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘</code></pre>
+
+    <p><strong>프로덕션 (멀티 노드) — 실서비스용</strong></p>
+
+    <pre><code>┌──────────────────────────────────────────────────────────────────────┐
+│                        K8s 클러스터                                   │
+│                                                                      │
+│  ┌──────────────────┐                                                │
+│  │  Master Node     │  ← 관리만 담당 (Pod 실행 안 함)                  │
+│  │  API Server      │                                                │
+│  │  Scheduler       │  "Backend Pod 1개 죽었네?                       │
+│  │  Controller      │   Worker Node 3에 새로 만들어!"                  │
+│  │  etcd            │                                                │
+│  └────────┬─────────┘                                                │
+│           │ 명령 전달                                                  │
+│     ┌─────┼──────────────┬───────────────┐                           │
+│     ▼     ▼              ▼               ▼                           │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                  │
+│  │ Worker Node 1│ │ Worker Node 2│ │ Worker Node 3│                  │
+│  │ (서버 1대)    │ │ (서버 1대)    │ │ (서버 1대)    │                  │
+│  │              │ │              │ │              │                  │
+│  │ Pod:Frontend │ │ Pod:Backend  │ │ Pod:Backend  │                  │
+│  │ Pod:Redis    │ │ Pod:DB       │ │ (자동 복구용)  │                  │
+│  └──────────────┘ └──────────────┘ └──────────────┘                  │
+│                                                                      │
+│  → Pod가 여러 Node에 분산됨 (1대 고장 → 다른 Node가 대체)               │
+└──────────────────────────────────────────────────────────────────────┘</code></pre>
+
+    <h3>ex08 프로젝트를 멀티 노드로 배포하면?</h3>
+
+    <pre><code>ex08의 4개 서비스가 3개 Worker Node에 분산되는 예시:
+
+  Worker Node 1          Worker Node 2          Worker Node 3
+  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+  │ Frontend Pod │      │ Backend Pod  │      │ Backend Pod  │
+  │ Redis Pod    │      │ DB Pod       │      │              │
+  │              │      │ [EBS 디스크]  │      │ (여유 공간)   │
+  └──────────────┘      └──────────────┘      └──────────────┘
+        │                     │                      │
+        └─────────Service─────┘──────────────────────┘
+              (자동 로드밸런싱)
+
+  Backend replicas: 2이므로 → Node 2, Node 3에 1개씩 분산
+  DB replicas: 1이므로 → Node 2에 1개 (데이터 일관성 때문)
+  K8s Scheduler가 자동으로 "어느 Node에 배치할지" 결정한다</code></pre>
+
+    <blockquote>
+      <strong>한 줄 요약</strong>: 노드 = 서버 1대. Minikube는 서버 1대에 전부 몰아넣는 것이고, 프로덕션은 여러 서버에 분산해서 <strong>죽어도 살아남게</strong> 만드는 것이다.
+    </blockquote>
+
+    <h2>4. 필요 프로그램 설치 (Windows)</h2>
+
+    <h3>4-1. Docker Desktop</h3>
+
+    <p>쿠버네티스의 컨테이너 런타임으로 Docker를 사용한다.</p>
+
+    <ol>
+      <li><a href="https://www.docker.com/products/docker-desktop/">Docker Desktop 공식 사이트</a>에서 다운로드</li>
+      <li>설치 후 재부팅</li>
+      <li>확인:</li>
+    </ol>
+
+    <pre><code>docker --version</code></pre>
+
+    <h3>4-2. kubectl</h3>
+
+    <pre><code># Chocolatey로 설치
+choco install kubernetes-cli
+
+# 또는 직접 다운로드
+curl -LO "https://dl.k8s.io/release/v1.32.0/bin/windows/amd64/kubectl.exe"
+# 다운로드한 파일을 PATH가 등록된 폴더에 이동</code></pre>
+
+    <p>설치 확인:</p>
+
+    <pre><code>kubectl version --client</code></pre>
+
+    <h3>4-3. Minikube</h3>
+
+    <pre><code># Chocolatey로 설치
+choco install minikube
+
+# 또는 직접 다운로드
+# https://minikube.sigs.k8s.io/docs/start/ 에서 Windows 인스톨러 다운로드</code></pre>
+
+    <p>설치 확인:</p>
+
+    <pre><code>minikube version</code></pre>
+
+    <h3>4-4. 전체 설치 확인</h3>
+
+    <pre><code>docker --version
+kubectl version --client
+minikube version</code></pre>
+
+    <p>세 명령어가 모두 버전을 출력하면 준비 완료.</p>
+
+    <h2>5. ex08 아키텍처</h2>
+
+    <h3>서비스 구성도</h3>
+
+    <pre><code>                    ┌──────────────────────────────────────────────┐
+                    │           Namespace: metacoding               │
+                    │                                              │
+  브라우저 ──────▶  │  ┌─────────────┐     ┌─────────────────┐    │
+                    │  │  Frontend   │────▶│  Backend (x2)   │    │
+                    │  │  (Nginx)    │     │  (Spring Boot)  │    │
+                    │  │  port: 80   │     │  port: 8080     │    │
+                    │  └─────────────┘     └────┬───────┬────┘    │
+                    │                           │       │         │
+                    │                    ┌──────┘       └──────┐  │
+                    │                    ▼                     ▼  │
+                    │           ┌──────────────┐    ┌───────────┐ │
+                    │           │  DB (MySQL)  │    │   Redis   │ │
+                    │           │  port: 3306  │    │ port: 6379│ │
+                    │           └──────┬───────┘    └───────────┘ │
+                    │                  │                           │
+                    │           ┌──────┘                           │
+                    │           ▼                                  │
+                    │      [PV: 1Gi]                              │
+                    │      /data/mysql                             │
+                    └──────────────────────────────────────────────┘</code></pre>
+
+    <h3>K8s 리소스 매핑</h3>
+
+    <table>
+      <thead>
+        <tr><th>서비스</th><th>Deployment</th><th>Service</th><th>ConfigMap</th><th>Secret</th><th>PV/PVC</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Frontend</td><td>frontend-deploy.yml</td><td>frontend-service.yml</td><td>-</td><td>-</td><td>-</td></tr>
+        <tr><td>Backend</td><td>backend-deploy.yml</td><td>backend-service.yml</td><td>backend-configmap.yml</td><td>backend-secret.yml</td><td>-</td></tr>
+        <tr><td>DB</td><td>db-deploy.yml</td><td>db-service.yml</td><td>-</td><td>db-secret.yml</td><td>db-pv.yml, db-pvc.yml</td></tr>
+        <tr><td>Redis</td><td>redis-deploy.yml</td><td>redis-service.yml</td><td>-</td><td>-</td><td>-</td></tr>
+      </tbody>
+    </table>
+
+    <h3>파일 구조</h3>
+
+    <pre><code>ex08/
+├── backend/           # Backend 이미지 빌드용
+│   ├── Dockerfile
+│   └── entrypoint.sh
+├── db/                # DB 이미지 빌드용
+│   ├── Dockerfile
+│   └── init.sql
+├── frontend/          # Frontend 이미지 빌드용
+│   ├── Dockerfile
+│   ├── index.html
+│   └── nginx.conf
+├── redis/             # Redis 이미지 빌드용
+│   └── Dockerfile
+└── k8s/               # 쿠버네티스 매니페스트
+    ├── namespace.yml
+    ├── backend/
+    ├── db/
+    ├── frontend/
+    └── redis/</code></pre>
+
+    <h2>6. 실습 순서</h2>
+
+    <h3>Step 1. Minikube 시작</h3>
+
+    <pre><code>minikube start</code></pre>
+
+    <p>로컬에 싱글 노드 쿠버네티스 클러스터를 생성한다. Docker Desktop이 실행 중이어야 한다.</p>
+
+    <h3>Step 2. Docker 이미지 빌드</h3>
+
+    <p>Minikube 내부에서 사용할 이미지를 빌드한다. <code>docker build</code>가 아니라 <code>minikube image build</code>를 사용해야 Minikube 클러스터 안에서 이미지를 인식한다.</p>
+
+    <pre><code>minikube image build -t metacoding/db:1 ./db
+minikube image build -t metacoding/backend:1 ./backend
+minikube image build -t metacoding/frontend:1 ./frontend
+minikube image build -t metacoding/redis:1 ./redis</code></pre>
+
+    <h3>Step 3. Namespace 생성</h3>
+
+    <pre><code>kubectl apply -f k8s/namespace.yml</code></pre>
+
+    <p><code>metacoding</code> 네임스페이스를 먼저 만든다. 다른 리소스들이 이 네임스페이스에 속하므로 가장 먼저 실행해야 한다.</p>
+
+    <h3>Step 4. 모든 리소스 배포</h3>
+
+    <pre><code>kubectl apply -f k8s/ --recursive</code></pre>
+
+    <p><code>--recursive</code> 옵션으로 <code>k8s/</code> 하위의 모든 YAML 파일을 한 번에 적용한다. Deployment, Service, ConfigMap, Secret, PV, PVC가 모두 생성된다.</p>
+
+    <h3>Step 5. 배포 상태 확인</h3>
+
+    <pre><code>kubectl get deploy,pod,service -n metacoding</code></pre>
+
+    <p>모든 Pod의 STATUS가 <code>Running</code>이 될 때까지 기다린다. Backend는 빌드 시간이 걸리므로 수 분 소요될 수 있다.</p>
+
+    <h3>Step 6. 로그 확인 (문제 발생 시)</h3>
+
+    <pre><code>kubectl logs deploy/db-deploy -n metacoding --tail=100
+kubectl logs deploy/backend-deploy -n metacoding --tail=100
+kubectl logs deploy/frontend-deploy -n metacoding --tail=100</code></pre>
+
+    <h3>Step 7. 서비스 접속</h3>
+
+    <pre><code>minikube service frontend-service -n metacoding --url</code></pre>
+
+    <p>출력된 URL을 브라우저에서 열면 사용자 리스트와 방문 횟수가 표시된다.</p>
+
+    <h2>7. 주요 kubectl 명령어</h2>
+
+    <table>
+      <thead>
+        <tr><th>명령어</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kubectl get pods -n metacoding</code></td><td>Pod 목록 조회</td></tr>
+        <tr><td><code>kubectl get deploy -n metacoding</code></td><td>Deployment 목록 조회</td></tr>
+        <tr><td><code>kubectl get svc -n metacoding</code></td><td>Service 목록 조회</td></tr>
+        <tr><td><code>kubectl get all -n metacoding</code></td><td>모든 리소스 조회</td></tr>
+        <tr><td><code>kubectl describe pod [이름] -n metacoding</code></td><td>Pod 상세 정보</td></tr>
+        <tr><td><code>kubectl logs [Pod이름] -n metacoding</code></td><td>Pod 로그 확인</td></tr>
+        <tr><td><code>kubectl logs deploy/[이름] -n metacoding</code></td><td>Deployment 로그 확인</td></tr>
+        <tr><td><code>kubectl delete -f k8s/ --recursive</code></td><td>모든 리소스 삭제</td></tr>
+        <tr><td><code>kubectl exec -it [Pod이름] -n metacoding -- bash</code></td><td>Pod 내부 접속</td></tr>
+        <tr><td><code>minikube stop</code></td><td>Minikube 중지</td></tr>
+        <tr><td><code>minikube delete</code></td><td>Minikube 클러스터 삭제</td></tr>
+      </tbody>
+    </table>
+
+    <h2>8. Minikube vs Kind vs kubeadm 비교</h2>
+
+    <h3>Docker Desktop과의 관계</h3>
+
+    <p>Minikube는 기본적으로 <strong>자체 VM(가상머신)</strong>을 띄워서 그 안에 쿠버네티스를 실행한다. Docker Desktop도 내부적으로 VM을 사용하므로, 둘을 동시에 실행하면 <strong>VM끼리 리소스(CPU, 메모리)를 경쟁</strong>하게 된다.</p>
+
+    <p>반면 <strong>Kind</strong>와 <strong>kubeadm</strong>은 Docker 컨테이너 위에서 쿠버네티스 노드를 실행하므로, Docker Desktop과 <strong>자연스럽게 공존</strong>할 수 있다.</p>
+
+    <pre><code>Docker Desktop (VM)
+├── Docker Engine
+│   ├── Kind      → Docker 컨테이너로 K8s 노드 실행 ✅ 공존
+│   └── kubeadm   → Docker 컨테이너를 런타임으로 사용 ✅ 공존
+│
+Minikube (별도 VM) → Docker Desktop과 VM 경쟁 ⚠️ 충돌 가능</code></pre>
+
+    <h3>개요 비교</h3>
+
+    <table>
+      <thead>
+        <tr><th>항목</th><th>Minikube</th><th>Kind</th><th>kubeadm</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>정식 명칭</strong></td><td>Minikube</td><td>Kubernetes IN Docker</td><td>Kubernetes Admin</td></tr>
+        <tr><td><strong>목적</strong></td><td>로컬 학습/테스트</td><td>CI/CD 및 로컬 테스트</td><td>프로덕션급 클러스터 구축</td></tr>
+        <tr><td><strong>동작 방식</strong></td><td>VM 또는 컨테이너 안에 K8s 실행</td><td>Docker 컨테이너가 K8s 노드 역할</td><td>실제 서버/VM에 K8s 직접 설치</td></tr>
+        <tr><td><strong>멀티 노드</strong></td><td>기본 싱글 노드 (멀티 가능하나 무거움)</td><td>멀티 노드 쉽게 지원</td><td>멀티 노드 기본 지원</td></tr>
+        <tr><td><strong>난이도</strong></td><td>쉬움 (초보 추천)</td><td>쉬움 (개발자 추천)</td><td>어려움 (운영자/고급)</td></tr>
+        <tr><td><strong>설치 크기</strong></td><td>무거움 (VM 포함)</td><td>가벼움 (컨테이너 기반)</td><td>가벼움 (바이너리만)</td></tr>
+        <tr><td><strong>적합 용도</strong></td><td>K8s 입문 학습</td><td>CI/CD 파이프라인, 로컬 개발</td><td>실제 프로덕션 환경</td></tr>
+        <tr><td><strong>Docker Desktop</strong></td><td>⚠️ 경쟁 (별도 VM)</td><td>✅ 공존 (Docker 위에서 동작)</td><td>✅ 공존 (Docker를 런타임으로 사용)</td></tr>
+        <tr><td><strong>Ingress 지원</strong></td><td><code>minikube addons enable ingress</code></td><td>수동 설정 필요</td><td>수동 설정 필요</td></tr>
+        <tr><td><strong>대시보드</strong></td><td><code>minikube dashboard</code> 내장</td><td>없음 (별도 설치)</td><td>없음 (별도 설치)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>설치 명령어 비교</h3>
+
+    <pre><code># ── Minikube ──
+choco install minikube          # Windows (Chocolatey)
+brew install minikube           # macOS (Homebrew)
+
+# ── Kind ──
+choco install kind              # Windows (Chocolatey)
+brew install kind               # macOS (Homebrew)
+go install sigs.k8s.io/kind@latest  # Go로 설치
+
+# ── kubeadm ──
+# Linux 전용 (Windows/macOS에서는 VM 안에서 실행해야 함)
+sudo apt-get install -y kubeadm kubelet kubectl   # Ubuntu/Debian
+sudo yum install -y kubeadm kubelet kubectl       # CentOS/RHEL</code></pre>
+
+    <h3>클러스터 생성/삭제 명령어 비교</h3>
+
+    <pre><code># ══════════════════════════════════════
+# 클러스터 생성
+# ══════════════════════════════════════
+
+# Minikube
+minikube start
+minikube start --nodes 3          # 멀티 노드
+
+# Kind
+kind create cluster
+kind create cluster --name my-cluster
+kind create cluster --config kind-config.yml   # 멀티 노드 (설정 파일 사용)
+
+# kubeadm (Master 노드에서)
+sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+# Worker 노드에서 조인
+sudo kubeadm join &lt;master-ip&gt;:6443 --token &lt;token&gt; --discovery-token-ca-cert-hash &lt;hash&gt;
+
+# ══════════════════════════════════════
+# 클러스터 상태 확인
+# ══════════════════════════════════════
+
+# Minikube
+minikube status
+
+# Kind
+kind get clusters
+
+# kubeadm
+kubectl cluster-info
+
+# ══════════════════════════════════════
+# 클러스터 삭제
+# ══════════════════════════════════════
+
+# Minikube
+minikube stop      # 중지 (데이터 유지)
+minikube delete    # 완전 삭제
+
+# Kind
+kind delete cluster
+kind delete cluster --name my-cluster
+
+# kubeadm
+sudo kubeadm reset</code></pre>
+
+    <h3>이미지 로드 방식 비교</h3>
+
+    <p>로컬에서 빌드한 Docker 이미지를 클러스터 안에서 사용하려면 각 도구마다 방법이 다르다.</p>
+
+    <pre><code># Minikube — Minikube 내부에서 직접 빌드
+minikube image build -t myapp:1 ./app
+# 또는 로컬 이미지를 로드
+minikube image load myapp:1
+
+# Kind — 로컬 이미지를 클러스터에 로드
+docker build -t myapp:1 ./app
+kind load docker-image myapp:1
+
+# kubeadm — Docker가 런타임이면 그냥 사용 가능
+docker build -t myapp:1 ./app
+# 별도 로드 불필요 (같은 Docker 데몬 사용 시)
+# 레지스트리 사용 시: docker push → YAML에서 pull</code></pre>
+
+    <h3>Kind 멀티 노드 설정 예시</h3>
+
+    <pre><code># kind-config.yml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker</code></pre>
+
+    <pre><code>kind create cluster --config kind-config.yml</code></pre>
+
+    <h3>선택 가이드</h3>
+
+    <table>
+      <thead>
+        <tr><th>상황</th><th>추천 도구</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>K8s를 처음 배우는 중</td><td><strong>Minikube</strong> — 대시보드, 애드온 등 편의 기능이 많다</td></tr>
+        <tr><td>Docker Desktop을 이미 쓰고 있고, 가볍게 K8s 테스트</td><td><strong>Kind</strong> — Docker 위에서 바로 실행, 충돌 없음</td></tr>
+        <tr><td>CI/CD 파이프라인에서 K8s 테스트</td><td><strong>Kind</strong> — 빠른 생성/삭제, 컨테이너 기반</td></tr>
+        <tr><td>멀티 노드 클러스터를 로컬에서 테스트</td><td><strong>Kind</strong> — 설정 파일 하나로 멀티 노드 구성</td></tr>
+        <tr><td>실제 프로덕션 클러스터 구축</td><td><strong>kubeadm</strong> — 실서버에 직접 설치하는 공식 도구</td></tr>
+        <tr><td>CKA/CKAD 자격증 시험 준비</td><td><strong>kubeadm</strong> — 시험에서 실제로 사용하는 도구</td></tr>
+      </tbody>
+    </table>
+
+    <p><strong>한 줄 요약</strong>: Minikube는 "학습용 올인원", Kind는 "Docker 위의 가벼운 K8s", kubeadm은 "진짜 클러스터 구축 도구"</p>
+  </div>
+</article>

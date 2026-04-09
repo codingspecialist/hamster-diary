@@ -2,6 +2,60 @@
   "categories": ["Kubernetes", "Docker", "Linux", "Git"],
   "posts": [
     {
+      "id": "k8s-intro",
+      "title": "Kubernetes 핵심 개념 총정리",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "Docker Compose와 비교하며 Cluster, Node, Pod, Deployment, Service, Namespace, ConfigMap, PV/PVC 등 K8s 핵심 개념을 정리한 가이드",
+      "filename": "posts/k8s-intro.html",
+      "tags": ["kubernetes", "minikube", "devops", "container"]
+    },
+    {
+      "id": "minikube-to-eks",
+      "title": "Minikube에서 AWS EKS로 배포하기",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "Minikube 로컬 환경에서 AWS EKS 프로덕션까지의 마이그레이션 전체 과정 — ECR, eksctl, CI/CD, Helm까지",
+      "filename": "posts/minikube-to-eks.html",
+      "tags": ["kubernetes", "aws", "eks", "ecr", "devops"]
+    },
+    {
+      "id": "k8s-selector",
+      "title": "Kubernetes Selector 깊이 이해하기",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "Deployment와 Service의 selector 동작 원리, 겹침 문제, 카나리 배포에서의 활용법 정리",
+      "filename": "posts/k8s-selector.html",
+      "tags": ["kubernetes", "selector", "canary", "deployment"]
+    },
+    {
+      "id": "rolling-canary",
+      "title": "Rolling Update & Canary 배포 전략",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "롤링 업데이트, 카나리 배포, 블루-그린 배포 전략의 동작 원리와 비교 분석",
+      "filename": "posts/rolling-canary.html",
+      "tags": ["kubernetes", "deployment", "rolling-update", "canary"]
+    },
+    {
+      "id": "tunnel-port-nodeport",
+      "title": "터널링 vs 포트포워딩 vs NodePort 비교",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "터널링, 포트포워딩, NodePort의 패킷 흐름과 실제 사용 예시를 비교 정리",
+      "filename": "posts/tunnel-port-nodeport.html",
+      "tags": ["kubernetes", "networking", "nodeport", "docker"]
+    },
+    {
+      "id": "minikube-network",
+      "title": "Minikube 내부 네트워크 구조",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "Host IP, Node IP, Pod IP, ClusterIP — Minikube의 3계층 IP 구조와 Service 네트워크 흐름 설명",
+      "filename": "posts/minikube-network.html",
+      "tags": ["kubernetes", "minikube", "networking", "service"]
+    },
+    {
       "id": "kubectl-cheatsheet",
       "title": "kubectl 명령어 완벽 정리",
       "date": "2026-04-08",
