@@ -78,9 +78,9 @@
       "title": "NodePort vs LoadBalancer vs Ingress — 외부 트래픽 진입 방식 비교",
       "date": "2026-04-09",
       "category": "Kubernetes",
-      "summary": "L4(NodePort/LoadBalancer)와 L7(Ingress)의 차이, Ingress Controller 설치부터 경로 기반 라우팅까지 실전 가이드",
+      "summary": "프로덕션(NodePort/LoadBalancer/Ingress)과 개발용(port-forward/minikube service/tunnel) 진입 방식 6가지 비교, Ingress Controller 설치 실전 가이드",
       "filename": "posts/k8s-ingress.html",
-      "tags": ["kubernetes", "ingress", "loadbalancer", "nodeport", "networking", "alb"]
+      "tags": ["kubernetes", "ingress", "loadbalancer", "nodeport", "port-forward", "networking", "alb"]
     },
     {
       "id": "kubectl-cheatsheet",
