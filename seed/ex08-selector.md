@@ -438,9 +438,89 @@ HPA를 추가했을 때:
   HPA: replicas를 8→5→3 자동 축소
 ```
 
-### HPA 생성 방법
+### HPA 설정 실전 가이드
 
-**방법 1: 명령어**
+HPA Controller는 kube-controller-manager에 **이미 내장**되어 있다. 설치할 필요 없다. 해야 할 건 2가지: **metrics-server 설치**와 **HPA 리소스 생성**.
+
+#### Step 1: metrics-server 설치
+
+HPA가 판단하려면 "지금 CPU가 몇 %인지" 알아야 한다. 이 데이터를 수집하는 게 metrics-server다.
+
+```bash
+# Minikube
+minikube addons enable metrics-server
+
+# EKS (보통 기본 포함, 없으면 설치)
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+# 설치 확인 (Pod이 Running인지)
+kubectl get pods -n kube-system | grep metrics-server
+
+# 동작 확인 (메트릭이 수집되는지)
+kubectl top pods -n metacoding
+```
+
+```
+kubectl top pods 결과 예시:
+
+NAME                        CPU(cores)   MEMORY(bytes)
+nginx-v1-7d4f8b6c9-abc12   3m           24Mi
+nginx-v1-7d4f8b6c9-def34   5m           22Mi
+nginx-v1-7d4f8b6c9-ghi56   4m           23Mi
+
+→ 이게 나오면 metrics-server가 정상 동작 중
+→ "error: Metrics API not available" 나오면 미설치 상태
+```
+
+#### Step 2: Deployment에 리소스 요청(requests) 설정
+
+HPA는 **"requests 대비 실제 사용량"**으로 퍼센트를 계산한다. requests가 없으면 퍼센트를 계산할 수 없다.
+
+```yaml
+# deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-v1
+  namespace: metacoding
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: nginx
+        version: v1
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.20
+          resources:
+            requests:              # ← 이게 있어야 HPA가 %를 계산할 수 있다
+              cpu: 100m            # 100 밀리코어 요청
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+```
+
+```
+HPA의 CPU % 계산 방식:
+
+  requests.cpu = 100m
+  실제 사용량  = 78m
+
+  CPU 사용률 = 78m / 100m = 78%
+
+  → requests가 없으면 "78m / ???" → 계산 불가!
+```
+
+#### Step 3: HPA 리소스 생성
+
+**방법 1: 명령어 (간단)**
 
 ```bash
 kubectl autoscale deployment nginx-v1 \
@@ -448,11 +528,15 @@ kubectl autoscale deployment nginx-v1 \
   --min=3 \
   --max=10 \
   -n metacoding
+
+# 확인
+kubectl get hpa -n metacoding
 ```
 
-**방법 2: YAML**
+**방법 2: YAML (상세 설정)**
 
 ```yaml
+# hpa.yml
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -462,45 +546,79 @@ spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: nginx-v1            # ← 이 Deployment의 replicas를 조절
-  minReplicas: 3
-  maxReplicas: 10
+    name: nginx-v1              # ← 이 Deployment의 replicas를 조절
+  minReplicas: 3                # 최소 Pod 수
+  maxReplicas: 10               # 최대 Pod 수
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: 50    # CPU 평균 50% 넘으면 스케일 아웃
-```
-
-### 전제 조건: metrics-server
-
-HPA가 동작하려면 **metrics-server**가 클러스터에 설치되어 있어야 한다. metrics-server가 각 Pod의 CPU/메모리 사용량을 수집하고, HPA Controller가 이 데이터를 보고 판단한다.
-
-```
-metrics-server 없으면:
-  HPA → "CPU 사용량을 모르겠다" → 스케일링 불가
-
-metrics-server 있으면:
-  metrics-server → kubelet에서 Pod 메트릭 수집
-       │
-       ▼
-  HPA Controller → "현재 CPU 평균 78%? 50% 목표 대비 높다 → 스케일 아웃"
-       │
-       ▼
-  Deployment replicas 변경 → ReplicaSet → Pod 추가
+          averageUtilization: 50  # CPU 평균 50% 넘으면 스케일 아웃
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70  # 메모리 평균 70% 넘으면 스케일 아웃
+  behavior:                       # 스케일링 속도 제어 (선택)
+    scaleUp:
+      stabilizationWindowSeconds: 30    # 30초 관찰 후 스케일 아웃
+    scaleDown:
+      stabilizationWindowSeconds: 300   # 5분 관찰 후 스케일 인 (급격한 축소 방지)
 ```
 
 ```bash
-# Minikube에서 metrics-server 활성화
-minikube addons enable metrics-server
+kubectl apply -f hpa.yml
+```
 
-# EKS에서는 기본 설치되어 있거나, Helm으로 설치
-helm install metrics-server metrics-server/metrics-server -n kube-system
+#### Step 4: 확인 및 모니터링
 
-# 확인
-kubectl top pods -n metacoding
+```bash
+# HPA 상태 확인
+kubectl get hpa -n metacoding
+
+NAME            REFERENCE             TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+nginx-v1-hpa   Deployment/nginx-v1   23%/50%   3         10        3          5m
+
+# TARGETS 읽는 법:
+#   23%/50% = "현재 23% 사용 중 / 50% 넘으면 스케일 아웃"
+#   <unknown>/50% = metrics-server 미설치 또는 requests 미설정
+
+# 상세 이벤트 확인
+kubectl describe hpa nginx-v1-hpa -n metacoding
+
+# 실시간 변화 관찰
+kubectl get hpa -n metacoding -w
+```
+
+#### 전체 흐름 한눈에 보기
+
+```
+[설치/설정]                          [자동 동작]
+
+Step 1                              metrics-server
+metrics-server 설치 ──────────────→ kubelet에서 메트릭 수집
+                                         │
+Step 2                                   ▼
+Deployment에                        HPA Controller (15초마다 체크)
+resources.requests 설정                  │
+                                         │ "CPU 평균 78%? 목표 50% 초과!"
+Step 3                                   │
+HPA 리소스 생성 ─────────────────→       ▼
+  (scaleTargetRef: nginx-v1)        Deployment replicas 3→5로 변경
+  (averageUtilization: 50%)              │
+                                         ▼
+                                    Deployment Controller
+                                    → ReplicaSet → Pod 2개 추가
+                                         │
+                                         ▼
+                                    Endpoints Controller
+                                    → 새 Pod IP 추가 → kube-proxy iptables 갱신
+                                         │
+                                         ▼
+                                    트래픽이 5개 Pod에 분산됨
 ```
 
 ### 자동으로 생기는 것 vs 직접 만들어야 하는 것
