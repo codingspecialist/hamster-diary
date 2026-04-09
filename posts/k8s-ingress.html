@@ -1,0 +1,390 @@
+<article>
+  <header class="post-header">
+    <h1 class="post-title">NodePort vs LoadBalancer vs Ingress — 외부 트래픽 진입 방식 비교</h1>
+    <div class="post-meta">
+      <time>2026-04-09</time>
+      <span class="category-tag">Kubernetes</span>
+    </div>
+  </header>
+  <div class="post-content">
+    <h2>핵심 질문: 외부에서 클러스터 안 Pod에 어떻게 접근하는가?</h2>
+
+    <p>3가지 방법이 있고, 각각 동작 레벨이 다르다:</p>
+
+    <pre><code>방법 1: NodePort (L4, TCP)
+  브라우저 &rarr; &lt;노드IP&gt;:30080 &rarr; kube-proxy &rarr; Pod
+  포트 하나에 서비스 하나. 포트 번호 외워야 함.
+
+방법 2: LoadBalancer (L4, TCP)
+  브라우저 &rarr; AWS NLB(공인IP) &rarr; NodePort &rarr; kube-proxy &rarr; Pod
+  서비스마다 NLB 1개 생성. 비용 폭탄.
+
+방법 3: Ingress (L7, HTTP)   &larr; 프로덕션 표준
+  브라우저 &rarr; ALB 또는 Nginx &rarr; 경로/도메인 보고 분기 &rarr; Pod
+  LB 1개로 여러 서비스 라우팅.</code></pre>
+
+    <h2>한눈에 비교</h2>
+
+    <table>
+      <thead>
+        <tr><th></th><th>NodePort</th><th>LoadBalancer</th><th>Ingress</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>OSI 계층</strong></td><td>L4 (TCP)</td><td>L4 (TCP)</td><td>L7 (HTTP/HTTPS)</td></tr>
+        <tr><td><strong>라우팅 기준</strong></td><td>포트 번호</td><td>포트 번호</td><td>도메인 + URL 경로</td></tr>
+        <tr><td><strong>외부 접근</strong></td><td><code>노드IP:30080</code></td><td><code>공인IP:80</code></td><td><code>myapp.com/api</code></td></tr>
+        <tr><td><strong>LB 개수</strong></td><td>없음</td><td>서비스마다 1개</td><td>여러 서비스에 1개</td></tr>
+        <tr><td><strong>SSL/HTTPS</strong></td><td>직접 설정</td><td>직접 설정</td><td>간단 (ACM/cert-manager)</td></tr>
+        <tr><td><strong>경로 분기</strong></td><td>불가</td><td>불가</td><td><code>/api</code>, <code>/admin</code> 등 가능</td></tr>
+        <tr><td><strong>적합한 환경</strong></td><td>개발/테스트</td><td>서비스 1~2개</td><td>프로덕션</td></tr>
+      </tbody>
+    </table>
+
+    <h2>NodePort &mdash; L4, 포트로 구분</h2>
+
+    <pre><code>[외부]                          [클러스터]
+
+브라우저                     Node1            Node2
+                          :30080           :30080
+    │                        │                │
+    │  http://10.0.1.10:30080                 │
+    │──────────────────&rarr;     │                │
+    │                   kube-proxy            │
+    │                   (iptables)            │
+    │                        │                │
+    │                        ▼                │
+    │                   frontend Pod          │</code></pre>
+
+    <ul>
+      <li>모든 노드에 30000~32767 포트를 연다</li>
+      <li>포트 번호를 외워야 한다 (<code>http://노드IP:30080</code>)</li>
+      <li>서비스 3개면 포트 3개 (<code>30080</code>, <code>30081</code>, <code>30082</code>)</li>
+      <li><strong>kube-proxy가 혼자 처리</strong> &mdash; 외부 인프라 불필요</li>
+    </ul>
+
+    <h2>LoadBalancer &mdash; L4, 클라우드 LB + NodePort</h2>
+
+    <pre><code>[외부]                          [클러스터]
+
+브라우저
+    │
+    │  http://a1b2c3.elb.amazonaws.com
+    │
+    ▼
+┌──────────────┐
+│  AWS NLB     │  &larr; Cloud Controller Manager가 생성
+│  공인 IP     │
+└──────┬───────┘
+       │
+       ▼
+  NodePort &rarr; kube-proxy &rarr; Pod</code></pre>
+
+    <ul>
+      <li>Cloud Controller Manager가 NLB를 자동 생성</li>
+      <li>깔끔한 공인 URL이 생긴다</li>
+      <li><strong>문제: 서비스마다 NLB 1개</strong></li>
+    </ul>
+
+    <pre><code>서비스 3개를 외부 노출할 때:
+
+  frontend-svc  (type: LoadBalancer) &rarr; NLB 1개 &rarr; 월 ~$20
+  backend-svc   (type: LoadBalancer) &rarr; NLB 1개 &rarr; 월 ~$20
+  admin-svc     (type: LoadBalancer) &rarr; NLB 1개 &rarr; 월 ~$20
+                                       ─────────────────
+                                       총: 월 ~$60 + 트래픽</code></pre>
+
+    <h2>Ingress &mdash; L7, HTTP 경로로 분기</h2>
+
+    <h3>NodePort/LoadBalancer와 근본적으로 다른 점</h3>
+
+    <p>NodePort와 LoadBalancer는 <strong>Service 타입</strong>이다 (Service YAML의 <code>type</code> 필드). Ingress는 <strong>Service가 아니다</strong> &mdash; 별도의 리소스(kind: Ingress)이며, 뒤에서 동작하는 <strong>Ingress Controller</strong>가 필요하다.</p>
+
+    <pre><code>Service 타입 (L4):
+  apiVersion: v1
+  kind: Service          &larr; Service 오브젝트
+  spec:
+    type: NodePort       &larr; 또는 LoadBalancer
+
+Ingress (L7):
+  apiVersion: networking.k8s.io/v1
+  kind: Ingress          &larr; Service가 아닌 별도 오브젝트</code></pre>
+
+    <h3>Ingress = 규칙 + 실행자</h3>
+
+    <p>Ingress가 동작하려면 <strong>2가지</strong>가 필요하다:</p>
+
+    <pre><code>[1] Ingress Controller (실행자) &mdash; 직접 설치해야 함
+    = 실제 트래픽을 처리하는 리버스 프록시 Pod
+
+    종류:
+    ├── AWS Load Balancer Controller &rarr; ALB 생성 (AWS 환경)
+    ├── nginx-ingress-controller &rarr; Nginx Pod (범용)
+    └── Traefik, HAProxy, Istio 등
+
+[2] Ingress 리소스 (규칙) &mdash; YAML로 생성
+    = "이 경로/도메인은 이 서비스로 보내라" 라우팅 규칙</code></pre>
+
+    <h3>트래픽 경로</h3>
+
+    <pre><code>[인터넷]
+    │
+    ▼
+┌──────────────────────────┐
+│ ALB 또는 Nginx Pod       │  &larr; Ingress Controller
+│ (L7 리버스 프록시)         │
+│                          │
+│ 규칙 확인:                │  &larr; Ingress 리소스
+│   myapp.com/             │
+│     &rarr; frontend-svc       │
+│   myapp.com/api          │
+│     &rarr; backend-svc        │
+│   myapp.com/admin        │
+│     &rarr; admin-svc          │
+└──┬──────────┬──────────┬─┘
+   │          │          │
+   ▼          ▼          ▼
+frontend   backend     admin    &larr; 전부 ClusterIP Service
+  Pod        Pod        Pod</code></pre>
+
+    <ul>
+      <li>URL 경로(<code>/api</code>, <code>/admin</code>)를 보고 분기 &mdash; L7이라 가능</li>
+      <li><strong>LB 1개로 여러 서비스</strong>를 처리한다</li>
+    </ul>
+
+    <h3>비용 비교</h3>
+
+    <pre><code>서비스 3개를 외부 노출할 때:
+
+  LoadBalancer 방식:
+    frontend-svc &rarr; NLB 1개 &rarr; 월 ~$20
+    backend-svc  &rarr; NLB 1개 &rarr; 월 ~$20
+    admin-svc    &rarr; NLB 1개 &rarr; 월 ~$20
+    총: 월 ~$60
+
+  Ingress 방식:
+    ALB 1개 &rarr; /     &rarr; frontend-svc
+            &rarr; /api  &rarr; backend-svc
+            &rarr; /admin &rarr; admin-svc
+    총: 월 ~$20</code></pre>
+
+    <h2>Ingress 설정 실전 가이드</h2>
+
+    <h3>Step 1: Ingress Controller 설치</h3>
+
+    <p><strong>Minikube:</strong></p>
+
+    <pre><code>minikube addons enable ingress
+
+# 확인
+kubectl get pods -n ingress-nginx</code></pre>
+
+    <p><strong>EKS (AWS Load Balancer Controller):</strong></p>
+
+    <pre><code># 1. IAM 정책 생성
+curl -o iam_policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.7.1/docs/install/iam_policy.json
+
+aws iam create-policy \
+  --policy-name AWSLoadBalancerControllerIAMPolicy \
+  --policy-document file://iam_policy.json
+
+# 2. ServiceAccount 생성
+eksctl create iamserviceaccount \
+  --cluster=my-cluster \
+  --namespace=kube-system \
+  --name=aws-load-balancer-controller \
+  --attach-policy-arn=arn:aws:iam::&lt;ACCOUNT_ID&gt;:policy/AWSLoadBalancerControllerIAMPolicy \
+  --approve
+
+# 3. Helm으로 컨트롤러 설치
+helm repo add eks https://aws.github.io/eks-charts
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=my-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller
+
+# 확인
+kubectl get pods -n kube-system | grep aws-load-balancer</code></pre>
+
+    <p><strong>범용 (Nginx Ingress Controller):</strong></p>
+
+    <pre><code>kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.9.6/deploy/static/provider/cloud/deploy.yaml
+
+# 확인
+kubectl get pods -n ingress-nginx</code></pre>
+
+    <h3>Step 2: 백엔드 Service는 ClusterIP로</h3>
+
+    <p>Ingress를 쓸 때 뒤에 있는 Service는 <strong>ClusterIP</strong>(기본값)이면 된다. NodePort나 LoadBalancer로 만들 필요 없다.</p>
+
+    <pre><code class="language-yaml"># frontend-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-svc
+  namespace: metacoding
+spec:
+  # type: ClusterIP (기본값, 생략 가능)
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# backend-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-svc
+  namespace: metacoding
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8080
+      targetPort: 8080</code></pre>
+
+    <h3>Step 3: Ingress 리소스 생성</h3>
+
+    <p><strong>Nginx Ingress (Minikube / 범용):</strong></p>
+
+    <pre><code class="language-yaml"># ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: metacoding-ingress
+  namespace: metacoding
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx        # 어떤 Ingress Controller를 쓸지
+  rules:
+    - host: myapp.com            # 도메인 (없으면 모든 요청)
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-svc
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-svc
+                port:
+                  number: 8080</code></pre>
+
+    <p><strong>AWS ALB Ingress:</strong></p>
+
+    <pre><code class="language-yaml"># ingress-alb.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: metacoding-ingress
+  namespace: metacoding
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing     # 외부 공개
+    alb.ingress.kubernetes.io/target-type: ip              # Pod IP 직접 라우팅
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:...  # HTTPS 인증서
+spec:
+  rules:
+    - host: myapp.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-svc
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-svc
+                port:
+                  number: 8080</code></pre>
+
+    <h3>Step 4: 확인</h3>
+
+    <pre><code># Ingress 상태 확인
+kubectl get ingress -n metacoding
+
+NAME                 CLASS   HOSTS       ADDRESS                                    PORTS   AGE
+metacoding-ingress   nginx   myapp.com   a1b2c3.ap-northeast-2.elb.amazonaws.com   80      5m
+
+# ADDRESS가 나오면 성공
+# Minikube에서는 minikube ip로 나오는 IP 사용
+
+# 테스트
+curl http://myapp.com/           # &rarr; frontend-svc &rarr; frontend Pod
+curl http://myapp.com/api        # &rarr; backend-svc &rarr; backend Pod</code></pre>
+
+    <h2>Ingress Controller도 결국 Pod이다</h2>
+
+    <p>Ingress Controller는 마법이 아니다. <strong>kube-system이나 ingress-nginx 네임스페이스에서 실행되는 일반 Pod</strong>이다.</p>
+
+    <pre><code>kubectl get pods -n ingress-nginx
+
+NAME                                        READY   STATUS
+ingress-nginx-controller-5d88495688-abc12   1/1     Running</code></pre>
+
+    <p>이 Pod 안에 Nginx(또는 다른 리버스 프록시)가 돌고 있고, Ingress 리소스를 watch해서 라우팅 규칙을 자동 반영한다.</p>
+
+    <pre><code>Ingress 리소스 생성/수정
+    │
+    ▼
+Ingress Controller Pod (watch 중)
+    │
+    │ "새 경로 규칙이 추가됐다"
+    │
+    ▼
+내부 Nginx 설정 자동 갱신
+    │
+    ▼
+트래픽 라우팅 시작</code></pre>
+
+    <p>CoreDNS가 DNS를 처리하는 일반 Pod이듯, Ingress Controller도 HTTP 라우팅을 처리하는 일반 Pod이다.</p>
+
+    <h2>전체 비교 정리</h2>
+
+    <h3>뭘 써야 하는가?</h3>
+
+    <table>
+      <thead>
+        <tr><th>상황</th><th>추천</th><th>이유</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>로컬 개발/테스트</td><td>NodePort</td><td>설정 간단, 외부 인프라 불필요</td></tr>
+        <tr><td>서비스 1개 외부 노출</td><td>LoadBalancer</td><td>YAML 한 줄로 공인 IP</td></tr>
+        <tr><td>서비스 여러 개 + 도메인</td><td><strong>Ingress</strong></td><td>LB 1개로 경로 분기, 비용 절약</td></tr>
+        <tr><td>HTTPS 필요</td><td><strong>Ingress</strong></td><td>ACM/cert-manager로 간단 설정</td></tr>
+      </tbody>
+    </table>
+
+    <h3>컴포넌트 관여 비교</h3>
+
+    <table>
+      <thead>
+        <tr><th></th><th>누가 처리하는가</th><th>설치 필요?</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>NodePort</strong></td><td>kube-proxy (iptables)</td><td>없음 (기본 내장)</td></tr>
+        <tr><td><strong>LoadBalancer</strong></td><td>kube-proxy + Cloud Controller Manager</td><td>CCM (EKS 기본 포함)</td></tr>
+        <tr><td><strong>Ingress</strong></td><td>Ingress Controller Pod + (선택적으로) 클라우드 LB</td><td>Ingress Controller 별도 설치</td></tr>
+      </tbody>
+    </table>
+
+    <h3>한 줄 요약</h3>
+
+    <ul>
+      <li><strong>NodePort/LoadBalancer</strong>: "포트 번호"로 서비스 구분 (L4). 서비스마다 포트 or LB가 따로 필요하다.</li>
+      <li><strong>Ingress</strong>: "URL 경로/도메인"으로 서비스 구분 (L7). LB 1개로 여러 서비스를 처리한다. 프로덕션 표준.</li>
+    </ul>
+  </div>
+</article>

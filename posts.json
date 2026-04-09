@@ -74,6 +74,15 @@
       "tags": ["kubernetes", "service", "kube-proxy", "coredns", "networking"]
     },
     {
+      "id": "k8s-ingress",
+      "title": "NodePort vs LoadBalancer vs Ingress — 외부 트래픽 진입 방식 비교",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "L4(NodePort/LoadBalancer)와 L7(Ingress)의 차이, Ingress Controller 설치부터 경로 기반 라우팅까지 실전 가이드",
+      "filename": "posts/k8s-ingress.html",
+      "tags": ["kubernetes", "ingress", "loadbalancer", "nodeport", "networking", "alb"]
+    },
+    {
       "id": "kubectl-cheatsheet",
       "title": "kubectl 명령어 완벽 정리",
       "date": "2026-04-08",
