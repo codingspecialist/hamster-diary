@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-svc
+  namespace: ex10
+spec:
+  type: ClusterIP
+  selector:
+    app: product
+    slot: blue
+  ports:
+    - port: 8080
+      targetPort: 8080

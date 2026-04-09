@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-svc
+  namespace: ex10
+spec:
+  type: ClusterIP
+  selector:
+    app: order
+    slot: blue
+  ports:
+    - port: 8080
+      targetPort: 8080
