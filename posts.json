@@ -56,6 +56,24 @@
       "tags": ["kubernetes", "minikube", "networking", "service", "kube-proxy"]
     },
     {
+      "id": "k8s-architecture",
+      "title": "Kubernetes 전체 아키텍처 — 비유로 이해하는 클러스터",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "회사 건물 비유로 Pod, Service, kube-proxy, ConfigMap, Secret, DNS, LoadBalancer까지 전체 그림을 한눈에 정리",
+      "filename": "posts/k8s-architecture.html",
+      "tags": ["kubernetes", "architecture", "service", "kube-proxy", "configmap", "networking"]
+    },
+    {
+      "id": "k8s-service-internals",
+      "title": "Service를 만들면 누가 처리하는가?",
+      "date": "2026-04-09",
+      "category": "Kubernetes",
+      "summary": "kube-proxy, Cloud Controller Manager, CoreDNS — Service 타입별 처리 주체와 내부 동작 정리",
+      "filename": "posts/k8s-service-internals.html",
+      "tags": ["kubernetes", "service", "kube-proxy", "coredns", "networking"]
+    },
+    {
       "id": "kubectl-cheatsheet",
       "title": "kubectl 명령어 완벽 정리",
       "date": "2026-04-08",
