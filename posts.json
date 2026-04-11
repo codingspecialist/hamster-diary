@@ -1,14 +1,44 @@
 {
-  "categories": ["Kubernetes", "Docker", "Linux", "Git", "Marketing"],
+  "categories": [
+    "Kubernetes",
+    "Docker",
+    "Linux",
+    "Git",
+    "Marketing"
+  ],
   "posts": [
     {
-      "id": "seolap-marketing",
+      "id": "seolap-video-production-guide",
+      "title": "서랍(Seolap) 영상 제작 완벽 가이드",
+      "date": "2026-04-11",
+      "category": "Marketing",
+      "summary": "AI 도구를 활용한 7개 영상 제작 (2주 완성) — Veo/Kling (영상), ElevenLabs (음성), Runway (편집)",
+      "filename": "posts/seolap-video-production-guide.html",
+      "tags": [
+        "영상제작",
+        "seolap",
+        "ai",
+        "마케팅",
+        "콘텐츠"
+      ]
+    },
+    {
+      "id": "seolap-marketing-guide",
       "title": "서랍(Seolap) 앱 홍보 전략 & 영상 제작 완벽 가이드",
       "date": "2026-04-11",
       "category": "Marketing",
       "summary": "ORB 채널 전략(Owned/Rented/Borrowed), 쇼트폼/미디엄폼/롱폼 영상 제작 프롬프트, AI 도구 추천(Veo, Kling, ElevenLabs), 광고 카피 샘플, 실행 일정까지 마케팅 전략 전체 정리",
-      "filename": "posts/seolap-marketing.html",
-      "tags": ["marketing", "seolap", "video", "youtube", "tiktok", "content-strategy", "advertising"]    },
+      "filename": "posts/seolap-marketing-guide.html",
+      "tags": [
+        "marketing",
+        "seolap",
+        "video",
+        "youtube",
+        "tiktok",
+        "content-strategy",
+        "advertising"
+      ]
+    },
     {
       "id": "k8s-intro",
       "title": "Kubernetes 핵심 개념 총정리",
@@ -16,7 +46,12 @@
       "category": "Kubernetes",
       "summary": "Docker Compose와 비교하며 Cluster, Node, Pod, Deployment, Service, Namespace, ConfigMap, PV/PVC 등 K8s 핵심 개념을 정리한 가이드",
       "filename": "posts/k8s-intro.html",
-      "tags": ["kubernetes", "minikube", "devops", "container"]
+      "tags": [
+        "kubernetes",
+        "minikube",
+        "devops",
+        "container"
+      ]
     },
     {
       "id": "minikube-to-eks",
@@ -25,7 +60,13 @@
       "category": "Kubernetes",
       "summary": "Minikube 로컬 환경에서 AWS EKS 프로덕션까지의 마이그레이션 전체 과정 — ECR, eksctl, CI/CD, Helm까지",
       "filename": "posts/minikube-to-eks.html",
-      "tags": ["kubernetes", "aws", "eks", "ecr", "devops"]
+      "tags": [
+        "kubernetes",
+        "aws",
+        "eks",
+        "ecr",
+        "devops"
+      ]
     },
     {
       "id": "k8s-selector",
@@ -34,7 +75,14 @@
       "category": "Kubernetes",
       "summary": "Deployment와 Service의 selector 동작 원리, 겹침 문제, 카나리 배포 활용법, 그리고 같은 selector로 상태관리·트래픽·오토스케일링을 나눠 맡는 컨트롤러 역할 비교",
       "filename": "posts/k8s-selector.html",
-      "tags": ["kubernetes", "selector", "canary", "deployment", "hpa", "endpoints"]
+      "tags": [
+        "kubernetes",
+        "selector",
+        "canary",
+        "deployment",
+        "hpa",
+        "endpoints"
+      ]
     },
     {
       "id": "rolling-canary",
@@ -43,7 +91,12 @@
       "category": "Kubernetes",
       "summary": "maxSurge/maxUnavailable 조합별 동작 비교, Rolling·Blue-Green·Recreate·Canary 배포 전략 설정과 요약",
       "filename": "posts/rolling-canary.html",
-      "tags": ["kubernetes", "deployment", "rolling-update", "canary"]
+      "tags": [
+        "kubernetes",
+        "deployment",
+        "rolling-update",
+        "canary"
+      ]
     },
     {
       "id": "tunnel-port-nodeport",
@@ -52,7 +105,12 @@
       "category": "Kubernetes",
       "summary": "터널링, 포트포워딩, NodePort의 패킷 흐름과 실제 사용 예시를 비교 정리",
       "filename": "posts/tunnel-port-nodeport.html",
-      "tags": ["kubernetes", "networking", "nodeport", "docker"]
+      "tags": [
+        "kubernetes",
+        "networking",
+        "nodeport",
+        "docker"
+      ]
     },
     {
       "id": "minikube-network",
@@ -61,7 +119,13 @@
       "category": "Kubernetes",
       "summary": "3계층 IP 구조, ClusterIP 대역 분리 이유, Service 5종류(ClusterIP/NodePort/LoadBalancer/ExternalName/Headless)와 kube-proxy 관계 총정리",
       "filename": "posts/minikube-network.html",
-      "tags": ["kubernetes", "minikube", "networking", "service", "kube-proxy"]
+      "tags": [
+        "kubernetes",
+        "minikube",
+        "networking",
+        "service",
+        "kube-proxy"
+      ]
     },
     {
       "id": "k8s-architecture",
@@ -70,7 +134,14 @@
       "category": "Kubernetes",
       "summary": "회사 건물 비유로 Pod, Service, kube-proxy, ConfigMap, Secret, DNS, LoadBalancer까지 전체 그림을 한눈에 정리",
       "filename": "posts/k8s-architecture.html",
-      "tags": ["kubernetes", "architecture", "service", "kube-proxy", "configmap", "networking"]
+      "tags": [
+        "kubernetes",
+        "architecture",
+        "service",
+        "kube-proxy",
+        "configmap",
+        "networking"
+      ]
     },
     {
       "id": "k8s-service-internals",
@@ -79,7 +150,13 @@
       "category": "Kubernetes",
       "summary": "kube-proxy, Cloud Controller Manager, CoreDNS — Service 타입별 처리 주체와 내부 동작 정리",
       "filename": "posts/k8s-service-internals.html",
-      "tags": ["kubernetes", "service", "kube-proxy", "coredns", "networking"]
+      "tags": [
+        "kubernetes",
+        "service",
+        "kube-proxy",
+        "coredns",
+        "networking"
+      ]
     },
     {
       "id": "k8s-ingress",
@@ -88,7 +165,15 @@
       "category": "Kubernetes",
       "summary": "프로덕션(NodePort/LoadBalancer/Ingress)과 개발용(port-forward/minikube service/tunnel) 진입 방식 6가지 비교, Ingress Controller 설치 실전 가이드",
       "filename": "posts/k8s-ingress.html",
-      "tags": ["kubernetes", "ingress", "loadbalancer", "nodeport", "port-forward", "networking", "alb"]
+      "tags": [
+        "kubernetes",
+        "ingress",
+        "loadbalancer",
+        "nodeport",
+        "port-forward",
+        "networking",
+        "alb"
+      ]
     },
     {
       "id": "ex10-msa",
@@ -97,7 +182,14 @@
       "category": "Kubernetes",
       "summary": "4개 마이크로서비스 블루-그린 배포, HPA 오토스케일링, Ingress 경로 분기, Service 내부 구조(ClusterIP 포함 관계)까지 전체 아키텍처 정리",
       "filename": "posts/ex10-msa.html",
-      "tags": ["kubernetes", "msa", "ingress", "hpa", "blue-green", "architecture"]
+      "tags": [
+        "kubernetes",
+        "msa",
+        "ingress",
+        "hpa",
+        "blue-green",
+        "architecture"
+      ]
     },
     {
       "id": "kubectl-cheatsheet",
@@ -106,7 +198,11 @@
       "category": "Kubernetes",
       "summary": "Kubernetes 클러스터 관리를 위한 kubectl 핵심 명령어를 카테고리별로 정리한 치트시트",
       "filename": "posts/kubectl-cheatsheet.html",
-      "tags": ["kubernetes", "kubectl", "devops"]
+      "tags": [
+        "kubernetes",
+        "kubectl",
+        "devops"
+      ]
     }
   ]
 }
