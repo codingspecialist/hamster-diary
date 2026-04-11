@@ -4,9 +4,41 @@
     "Docker",
     "Linux",
     "Git",
-    "Marketing"
+    "Marketing",
+    "마케팅"
   ],
   "posts": [
+    {
+      "id": "seolap-community-partnerships",
+      "title": "서랍(Seolap) 커뮤니티 & 파트너십 전략",
+      "date": "2026-04-11",
+      "category": "마케팅",
+      "summary": "월 10K+ 오르가닉 도달, 3개 파트너십 체결을 목표로 하는 커뮤니티 & 파트너십 전략. 팟캐스트, 유튜버, 블로거 협력 및 커뮤니티 활동 아웃리치.",
+      "filename": "posts/seolap-community-partnerships.html",
+      "tags": [
+        "파트너십",
+        "팟캐스트",
+        "유튜버",
+        "블로거",
+        "커뮤니티",
+        "아웃리치"
+      ]
+    },
+    {
+      "id": "seolap-advertising-campaigns",
+      "title": "서랍(Seolap) 광고 캠페인 완벽 가이드",
+      "date": "2026-04-11",
+      "category": "마케팅",
+      "summary": "**작성 일시:** 2026-04-11 **목표:** 3개 플랫폼 월 200K+ 도달, CPI $0.70 이하 **월 예산:** $2,000-3,000 (테스트 → 최적화)",
+      "filename": "posts/seolap-advertising-campaigns.html",
+      "tags": [
+        "월별 최적화",
+        "유사 앱 벤치마크",
+        "캠페인 시작 전 (첫 주)",
+        "3. TikTok Ads",
+        "초기 3개월 (검증 단계)"
+      ]
+    },
     {
       "id": "seolap-sns-content-strategy",
       "title": "서랍(Seolap) SNS 콘텐츠 전략 & 월별 발행 일정",
@@ -14,7 +46,16 @@
       "category": "Marketing",
       "summary": "TikTok, Instagram Reels, YouTube Shorts 플랫폼별 콘텐츠 전략. 월 40+ 포스트 발행 일정, 샘플 포스트, 이미지 디자인 가이드, Buffer 예약 설정, KPI 추적 방법까지 완전 정리",
       "filename": "posts/seolap-sns-content-strategy.html",
-      "tags": ["marketing", "sns", "seolap", "tiktok", "instagram", "youtube", "social-media", "content-calendar"]
+      "tags": [
+        "marketing",
+        "sns",
+        "seolap",
+        "tiktok",
+        "instagram",
+        "youtube",
+        "social-media",
+        "content-calendar"
+      ]
     },
     {
       "id": "seolap-video-production-guide",
