@@ -8,8 +8,7 @@
       "category": "Marketing",
       "summary": "ORB 채널 전략(Owned/Rented/Borrowed), 쇼트폼/미디엄폼/롱폼 영상 제작 프롬프트, AI 도구 추천(Veo, Kling, ElevenLabs), 광고 카피 샘플, 실행 일정까지 마케팅 전략 전체 정리",
       "filename": "posts/seolap-marketing.html",
-      "tags": ["marketing", "seolap", "video", "youtube", "tiktok", "content-strategy", "advertising"]
-    },
+      "tags": ["marketing", "seolap", "video", "youtube", "tiktok", "content-strategy", "advertising"]    },
     {
       "id": "k8s-intro",
       "title": "Kubernetes 핵심 개념 총정리",
