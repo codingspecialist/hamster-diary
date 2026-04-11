@@ -1,6 +1,15 @@
 {
-  "categories": ["Kubernetes", "Docker", "Linux", "Git"],
+  "categories": ["Kubernetes", "Docker", "Linux", "Git", "Marketing"],
   "posts": [
+    {
+      "id": "seolap-video-production-guide",
+      "title": "서랍(Seolap) 영상 제작 완벽 가이드",
+      "date": "2026-04-11",
+      "category": "Marketing",
+      "summary": "AI 도구(Veo, Kling, ElevenLabs)를 활용한 서랍앱 영상 제작 완벽 가이드. 쇼트폼 6개, 튜토리얼 1개, 데모 1개 총 8개 영상 제작용 구체적 프롬프트와 스크립트 제공",
+      "filename": "posts/seolap-video-production-guide.html",
+      "tags": ["marketing", "video", "seolap", "veo", "kling", "elevenlab", "content-production", "ai-tools"]
+    },
     {
       "id": "k8s-intro",
       "title": "Kubernetes 핵심 개념 총정리",
