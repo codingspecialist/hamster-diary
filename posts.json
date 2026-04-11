@@ -8,6 +8,15 @@
   ],
   "posts": [
     {
+      "id": "seolap-sns-content-strategy",
+      "title": "서랍(Seolap) SNS 콘텐츠 전략 & 월별 발행 일정",
+      "date": "2026-04-11",
+      "category": "Marketing",
+      "summary": "TikTok, Instagram Reels, YouTube Shorts 플랫폼별 콘텐츠 전략. 월 40+ 포스트 발행 일정, 샘플 포스트, 이미지 디자인 가이드, Buffer 예약 설정, KPI 추적 방법까지 완전 정리",
+      "filename": "posts/seolap-sns-content-strategy.html",
+      "tags": ["marketing", "sns", "seolap", "tiktok", "instagram", "youtube", "social-media", "content-calendar"]
+    },
+    {
       "id": "seolap-video-production-guide",
       "title": "서랍(Seolap) 영상 제작 완벽 가이드",
       "date": "2026-04-11",
