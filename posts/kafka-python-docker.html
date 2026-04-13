@@ -1,0 +1,315 @@
+<article>
+  <header class="post-header">
+    <h1 class="post-title">Kafka + Python + Docker 비동기 메시징 예제</h1>
+    <div class="post-meta">
+      <time>2026-04-13</time>
+      <span class="category-tag">Kafka</span>
+    </div>
+  </header>
+
+  <div class="post-content">
+    <blockquote>DB 없이 Docker로 Kafka를 띄우고, Python Producer/Consumer 두 개를 붙여 "비동기 메시지 큐"가 어떻게 동작하는지 눈으로 확인하는 학습용 예제.</blockquote>
+
+    <h2>1. Kafka가 뭔가요? — 우체국 비유</h2>
+
+    <p>Kafka를 한 줄로 표현하면 <strong>"메시지 우체국"</strong>입니다.</p>
+
+    <pre><code>   ┌────────────┐    편지를 부침     ┌──────────────┐    편지를 가져감   ┌────────────┐
+   │  Producer  │ ─────────────────▶ │    Kafka     │ ─────────────────▶ │  Consumer  │
+   │  (보내는 쪽)│                    │   (우체국)    │                    │ (받는 쪽)   │
+   └────────────┘                    └──────────────┘                    └────────────┘
+                                       ▲    │
+                                       │    └─ 편지를 보관함 (디스크에 저장)
+                                       └─ 받는 사람이 없어도 OK</code></pre>
+
+    <ul>
+      <li><strong>Producer</strong>: 편지를 우체국에 던지고 바로 자기 일 하러 감 → "비동기"</li>
+      <li><strong>Kafka</strong>: 편지를 안전하게 보관 (받는 사람이 늦게 와도 안 사라짐)</li>
+      <li><strong>Consumer</strong>: 자기 페이스대로 편지함을 비움</li>
+    </ul>
+
+    <p>이게 <strong>DB와 가장 큰 차이</strong>입니다. DB는 "조회"하지만 Kafka는 "흐름"입니다.</p>
+
+    <h3>Topic = 우편함 종류</h3>
+
+    <p>한 우체국 안에 여러 우편함이 있다고 생각하면 됩니다.</p>
+
+    <pre><code>  Kafka 우체국
+  ├─ 📬 topic: "orders"      (주문 메시지함)
+  ├─ 📬 topic: "payments"    (결제 메시지함)
+  └─ 📬 topic: "demo"        (이번 예제에서 사용)</code></pre>
+
+    <h2>2. 왜 비동기인가? — 카페 비유</h2>
+
+    <p>직접 비교해봅시다.</p>
+
+    <p><strong>동기 (HTTP 직접 호출)</strong> — 카페에서 줄 서기</p>
+    <pre><code>손님 ──(주문)──▶ 바리스타 ──(커피 만드는 동안 손님 대기)──▶ 손님 받음
+                  ⏱ 손님은 5분간 아무것도 못함</code></pre>
+
+    <p><strong>비동기 (Kafka)</strong> — 카페에서 진동벨 받기</p>
+    <pre><code>손님 ──(주문 던짐)──▶ 진동벨 받고 바로 자리로 ✅
+                          │
+                          ▼
+                   바리스타가 천천히 만들고
+                   완성되면 진동벨이 울림 🔔</code></pre>
+
+    <p>→ Producer는 "주문만 던지고" 자기 할 일을 합니다.<br>
+    → Consumer는 "큐에 쌓인 일"을 자기 속도로 처리합니다.</p>
+
+    <h2>3. 이 예제의 전체 구조</h2>
+
+    <pre><code>                      ┌───────────────────────────────────────┐
+                      │            Docker Network              │
+                      │                                       │
+   당신                │   ┌──────────┐         ┌──────────┐  │
+   (PC) ──curl──▶ :8000│──▶│ Producer │──send──▶│  Kafka   │  │
+                      │   │ FastAPI  │         │  Broker  │  │
+                      │   └──────────┘         └────┬─────┘  │
+                      │                             │ poll   │
+                      │                        ┌────▼─────┐  │
+                      │                        │ Consumer │  │
+                      │                        │ (worker) │  │
+                      │                        └────┬─────┘  │
+                      └─────────────────────────────┼────────┘
+                                                    ▼
+                                           docker logs 로 확인</code></pre>
+
+    <p>총 <strong>3개 컨테이너</strong>:</p>
+
+    <table>
+      <thead>
+        <tr><th>컨테이너</th><th>역할</th><th>포트</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kafka</code></td><td>메시지 우체국</td><td>9092 (외부), 9093 (내부)</td></tr>
+        <tr><td><code>producer</code></td><td>HTTP 받아서 Kafka로 전달</td><td>8000</td></tr>
+        <tr><td><code>consumer</code></td><td>Kafka에서 꺼내 처리 (2초 sleep)</td><td>-</td></tr>
+      </tbody>
+    </table>
+
+    <blockquote>💡 <strong>왜 브로커 1개?</strong> 학습용이라 충분합니다. 실무는 보통 3개 이상 (한 대가 죽어도 데이터 유지). KRaft 모드를 쓰면 Zookeeper도 필요 없어서 더 단순해졌어요.</blockquote>
+
+    <h2>4. 디렉토리 구조</h2>
+
+    <pre><code>kafka-test/
+├─ docker-compose.yml         ← 컨테이너 3개 정의
+├─ producer/
+│   ├─ Dockerfile
+│   ├─ requirements.txt
+│   └─ main.py                ← FastAPI 서버
+├─ consumer/
+│   ├─ Dockerfile
+│   ├─ requirements.txt
+│   └─ main.py                ← 무한 polling 워커
+└─ kafka.md</code></pre>
+
+    <h2>5. 코드 — 한 줄씩 의미와 함께</h2>
+
+    <h3>5-1. docker-compose.yml</h3>
+
+    <pre><code>services:
+  kafka:
+    image: bitnami/kafka:3.7
+    ports:
+      - "9092:9092"
+    environment:
+      # KRaft 모드: Zookeeper 없이 혼자 동작
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9094
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9093,CONTROLLER://:9094,EXTERNAL://:9092
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9093,EXTERNAL://localhost:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"   # topic 자동 생성
+
+  producer:
+    build: ./producer
+    ports:
+      - "8000:8000"
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9093    # 컨테이너끼리는 내부 주소
+    depends_on:
+      - kafka
+
+  consumer:
+    build: ./consumer
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9093
+    depends_on:
+      - kafka</code></pre>
+
+    <blockquote>🔑 <strong>리스너가 두 개</strong>인 이유: 컨테이너끼리 통신 (<code>kafka:9093</code>)과 내 PC에서 접근 (<code>localhost:9092</code>)을 분리해야 합니다. Kafka 처음 쓸 때 가장 헷갈리는 부분!</blockquote>
+
+    <h3>5-2. producer/main.py (FastAPI)</h3>
+
+    <pre><code>import json, os, time
+from fastapi import FastAPI
+from pydantic import BaseModel
+from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
+
+app = FastAPI()
+
+# Kafka가 부팅될 때까지 재시도 (처음 10~20초 걸림)
+def make_producer():
+    while True:
+        try:
+            return KafkaProducer(
+                bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP"),
+                value_serializer=lambda v: json.dumps(v).encode(),
+            )
+        except NoBrokersAvailable:
+            print("Kafka 아직 준비 안 됨, 3초 후 재시도...")
+            time.sleep(3)
+
+producer = make_producer()
+
+class Msg(BaseModel):
+    message: str
+
+@app.post("/publish")
+def publish(msg: Msg):
+    producer.send("demo", {"message": msg.message, "ts": time.time()})
+    # send()는 큐에 넣을 뿐, 실제 전송은 백그라운드 → 즉시 반환됨
+    return {"status": "queued", "message": msg.message}
+
+@app.get("/health")
+def health():
+    return {"ok": True}</code></pre>
+
+    <p>핵심:</p>
+    <pre><code>producer.send(...)  ──▶  내부 버퍼에 쌓고 즉시 return
+                              │
+                              └─ 백그라운드 스레드가 Kafka로 flush</code></pre>
+
+    <h3>5-3. consumer/main.py (워커)</h3>
+
+    <pre><code>import json, os, time
+from kafka import KafkaConsumer
+from kafka.errors import NoBrokersAvailable
+
+def make_consumer():
+    while True:
+        try:
+            return KafkaConsumer(
+                "demo",
+                bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP"),
+                group_id="demo-group",
+                auto_offset_reset="earliest",   # 처음부터 읽기
+                value_deserializer=lambda v: json.loads(v.decode()),
+            )
+        except NoBrokersAvailable:
+            print("Kafka 아직 준비 안 됨, 3초 후 재시도...")
+            time.sleep(3)
+
+consumer = make_consumer()
+print("Consumer 준비 완료, 메시지 대기 중...")
+
+for record in consumer:
+    print(f"[{time.strftime('%H:%M:%S')}] 수신: {record.value}")
+    time.sleep(2)   # 일부러 천천히 처리 → 비동기 효과 확인용
+    print(f"[{time.strftime('%H:%M:%S')}] 처리 완료")</code></pre>
+
+    <blockquote>🐢 일부러 <code>sleep(2)</code>를 넣은 이유: Producer는 0.01초만에 응답하지만 Consumer는 천천히 소화하는 모습을 로그로 확인하기 위함.</blockquote>
+
+    <h3>5-4. Dockerfile (둘 다 거의 동일)</h3>
+
+    <p><strong>producer/Dockerfile</strong></p>
+    <pre><code>FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY main.py .
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]</code></pre>
+
+    <p><strong>producer/requirements.txt</strong></p>
+    <pre><code>fastapi
+uvicorn
+kafka-python</code></pre>
+
+    <p><strong>consumer/Dockerfile</strong></p>
+    <pre><code>FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY main.py .
+CMD ["python", "-u", "main.py"]</code></pre>
+
+    <p><strong>consumer/requirements.txt</strong></p>
+    <pre><code>kafka-python</code></pre>
+
+    <h2>6. 실행하기</h2>
+
+    <pre><code># 1. 빌드 + 실행
+docker compose up -d --build
+
+# 2. Consumer 로그 보기 (별도 터미널)
+docker compose logs -f consumer
+
+# 3. 메시지 5번 빠르게 던지기
+for i in 1 2 3 4 5; do
+  curl -s -X POST http://localhost:8000/publish \
+    -H "Content-Type: application/json" \
+    -d "{\"message\":\"hello-$i\"}"
+  echo
+done</code></pre>
+
+    <h3>예상 결과</h3>
+
+    <p><strong>Producer 응답</strong> (즉시 5번 다 옴):</p>
+    <pre><code>{"status":"queued","message":"hello-1"}
+{"status":"queued","message":"hello-2"}
+{"status":"queued","message":"hello-3"}
+{"status":"queued","message":"hello-4"}
+{"status":"queued","message":"hello-5"}</code></pre>
+
+    <p><strong>Consumer 로그</strong> (2초 간격으로 천천히):</p>
+    <pre><code>[14:01:00] 수신: {'message': 'hello-1', ...}
+[14:01:02] 처리 완료
+[14:01:02] 수신: {'message': 'hello-2', ...}
+[14:01:04] 처리 완료
+[14:01:04] 수신: {'message': 'hello-3', ...}
+...</code></pre>
+
+    <pre><code>시간 ─────────────────────────────────────────▶
+Producer:  ▮▮▮▮▮ (5개를 0.05초 안에 큐잉, 즉시 응답)
+Consumer:  ▮___▮___▮___▮___▮___ (2초 간격으로 천천히 처리)
+           └─ 이 격차가 바로 "비동기 메시지 큐"의 핵심!</code></pre>
+
+    <h2>7. 더 해볼 만한 실험</h2>
+
+    <h3>실험 A: Consumer를 끄고 메시지를 쌓아두기</h3>
+    <pre><code>docker compose stop consumer
+# 메시지 10번 던지기
+for i in $(seq 1 10); do curl -X POST ... -d "{\"message\":\"$i\"}"; done
+docker compose start consumer
+docker compose logs -f consumer</code></pre>
+    <p>→ Consumer가 꺼져있어도 메시지는 Kafka에 보관됨. 다시 켜면 <strong>밀린 것부터 순서대로</strong> 처리. ✨</p>
+
+    <h3>실험 B: Consumer를 2개로 늘리기 (consumer group)</h3>
+    <p><code>docker compose up -d --scale consumer=2</code> 로 띄우면 같은 group에 속한 두 워커가 메시지를 <strong>나눠서</strong> 처리합니다 (단, topic이 1 partition이면 1명만 일함).</p>
+
+    <h2>8. 정리</h2>
+
+    <table>
+      <thead>
+        <tr><th>개념</th><th>한 줄 요약</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Producer</td><td>편지 던지고 바로 가는 사람</td></tr>
+        <tr><td>Consumer</td><td>편지함 비우는 사람 (자기 페이스)</td></tr>
+        <tr><td>Topic</td><td>우편함 종류</td></tr>
+        <tr><td>Broker</td><td>우체국 건물 자체</td></tr>
+        <tr><td>Group</td><td>같은 일을 나눠 하는 팀</td></tr>
+        <tr><td>KRaft</td><td>Zookeeper 없는 신형 Kafka 운영 모드</td></tr>
+      </tbody>
+    </table>
+
+    <blockquote>"Producer는 던진다. Consumer는 자기 속도로 먹는다. Kafka는 그 사이에서 안 잃어버린다."</blockquote>
+
+    <p>이 한 문장이 비동기 메시징의 전부입니다. 🎯</p>
+  </div>
+</article>

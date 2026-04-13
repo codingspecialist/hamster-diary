@@ -5,9 +5,27 @@
     "Linux",
     "Git",
     "Marketing",
-    "마케팅"
+    "마케팅",
+    "Kafka"
   ],
   "posts": [
+    {
+      "id": "kafka-python-docker",
+      "title": "Kafka + Python + Docker 비동기 메시징 예제",
+      "date": "2026-04-13",
+      "category": "Kafka",
+      "summary": "DB 없이 Docker로 Kafka를 띄우고, Python Producer/Consumer 두 개를 붙여 비동기 메시지 큐가 어떻게 동작하는지 눈으로 확인하는 학습용 예제. 우체국/카페 비유와 ASCII 다이어그램으로 쉽게 설명.",
+      "filename": "posts/kafka-python-docker.html",
+      "tags": [
+        "Kafka",
+        "Python",
+        "Docker",
+        "FastAPI",
+        "비동기",
+        "메시지큐",
+        "KRaft"
+      ]
+    },
     {
       "id": "seolap-community-partnerships",
       "title": "서랍(Seolap) 커뮤니티 & 파트너십 전략",
