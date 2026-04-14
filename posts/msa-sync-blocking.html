@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1. 동기 블로킹 MSA - 결제 처리</title>
+<style>
+:root {
+  --bg: #faf9f5; --surface: #ffffff; --surface-alt: #f1efe8;
+  --text: #1a1a1a; --text-sec: #5f5e5a; --text-ter: #888780;
+  --border: rgba(0,0,0,0.1); --border-strong: rgba(0,0,0,0.2);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1e1c; --surface: #2a2926; --surface-alt: #34332f;
+    --text: #f0eee6; --text-sec: #a0a09c; --text-ter: #6a6a66;
+    --border: rgba(255,255,255,0.12); --border-strong: rgba(255,255,255,0.22);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  background: var(--bg); color: var(--text);
+  margin: 0; padding: 24px 16px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 720px; margin: 0 auto; }
+h1 { font-size: 20px; font-weight: 500; margin: 0 0 6px; }
+.subtitle { font-size: 13px; color: var(--text-sec); margin-bottom: 24px; }
+button {
+  background: var(--surface); border: 0.5px solid var(--border-strong);
+  border-radius: 8px; padding: 8px 14px; font-size: 13px;
+  color: var(--text); cursor: pointer; font-family: inherit;
+  transition: background 0.15s;
+}
+button:hover { background: var(--surface-alt); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+.client {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 12px; padding: 16px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+  transition: background 0.3s, border-color 0.3s;
+}
+.client.blocked { background: #FCEBEB; border-color: #E24B4A; }
+.client.success { background: #E1F5EE; border-color: #1D9E75; }
+@media (prefers-color-scheme: dark) {
+  .client.blocked { background: #501313; border-color: #E24B4A; }
+  .client.success { background: #04342C; border-color: #1D9E75; }
+}
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: #A32D2D;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block; vertical-align: middle; margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.arrow { text-align: center; font-size: 12px; color: var(--text-ter); margin: 6px 0; }
+.ms-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px; margin: 10px 0 16px;
+}
+.ms-box {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 8px; padding: 14px 8px; text-align: center;
+  transition: background 0.3s, border-color 0.3s;
+}
+.ms-box.active { background: #FAEEDA; border-color: #BA7517; }
+.ms-box.done { background: #E1F5EE; border-color: #1D9E75; }
+@media (prefers-color-scheme: dark) {
+  .ms-box.active { background: #412402; border-color: #BA7517; }
+  .ms-box.done { background: #04342C; border-color: #1D9E75; }
+}
+.ms-name { font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+.ms-task { font-size: 11px; color: var(--text-sec); min-height: 14px; }
+.ms-box.active .ms-name, .ms-box.active .ms-task { color: #854F0B; }
+.ms-box.done .ms-name, .ms-box.done .ms-task { color: #0F6E56; }
+@media (prefers-color-scheme: dark) {
+  .ms-box.active .ms-name, .ms-box.active .ms-task { color: #FAC775; }
+  .ms-box.done .ms-name, .ms-box.done .ms-task { color: #9FE1CB; }
+}
+.dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--border-strong); margin-right: 5px; vertical-align: middle;
+}
+.ms-box.active .dot { background: #EF9F27; animation: pulse 1s infinite; }
+.ms-box.done .dot { background: #1D9E75; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.stats {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+}
+.stat {
+  background: var(--surface-alt); border-radius: 8px; padding: 12px;
+}
+.stat-label { font-size: 12px; color: var(--text-sec); }
+.stat-value { font-size: 22px; font-weight: 500; margin-top: 2px; }
+.controls { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.note {
+  margin-top: 24px; font-size: 12px; color: var(--text-sec);
+  border-top: 0.5px solid var(--border); padding-top: 14px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>1. 동기 블로킹 MSA 패턴</h1>
+  <div class="subtitle">결제 처리 시뮬레이션 — 클라이언트가 모든 단계의 응답을 기다립니다</div>
+
+  <div class="client" id="client">
+    <div style="min-width: 0;">
+      <div style="font-size: 13px; color: var(--text-sec); margin-bottom: 4px;">고객 (클라이언트)</div>
+      <div style="font-size: 15px; font-weight: 500;" id="client-state">결제 버튼을 눌러주세요</div>
+    </div>
+    <button onclick="startPayment()" id="pay-btn">결제하기 ₩45,000</button>
+  </div>
+
+  <div class="arrow">↓ 동기 요청 (응답 올 때까지 블로킹)</div>
+
+  <div class="ms-grid">
+    <div class="ms-box" id="ms-0"><div class="ms-name"><span class="dot"></span>카드 검증</div><div class="ms-task" id="task-0">대기중</div></div>
+    <div class="ms-box" id="ms-1"><div class="ms-name"><span class="dot"></span>잔액 확인</div><div class="ms-task" id="task-1">대기중</div></div>
+    <div class="ms-box" id="ms-2"><div class="ms-name"><span class="dot"></span>결제 승인</div><div class="ms-task" id="task-2">대기중</div></div>
+    <div class="ms-box" id="ms-3"><div class="ms-name"><span class="dot"></span>주문 확정</div><div class="ms-task" id="task-3">대기중</div></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-label">경과 시간</div><div class="stat-value" id="elapsed">0.0s</div></div>
+    <div class="stat"><div class="stat-label">완료 단계</div><div class="stat-value" id="step-count">0 / 4</div></div>
+    <div class="stat"><div class="stat-label">고객 상태</div><div class="stat-value" id="status-label">대기</div></div>
+  </div>
+
+  <div class="controls">
+    <button onclick="reset()">초기화</button>
+    <button onclick="runScenario(true)">실패 시나리오 (잔액 부족)</button>
+  </div>
+
+  <div class="note">
+    <strong>관찰 포인트</strong>: 응답 시간 = 모든 MS 처리 시간의 합 (~5.5초). 클라이언트는 그 동안 아무것도 못 합니다. 한 단계라도 실패하면 이미 처리된 단계를 롤백해야 합니다.
+  </div>
+</div>
+
+<script>
+const services = [
+  { tasks: ['카드 번호 확인', '유효기간 검증', '검증 완료'], duration: 1200 },
+  { tasks: ['은행 API 호출', '잔액 조회', '잔액 충분'], duration: 1500 },
+  { tasks: ['PG사 요청', '승인 대기', '승인 완료'], duration: 1800 },
+  { tasks: ['주문 DB 기록', '영수증 생성', '주문 확정'], duration: 1000 }
+];
+
+let running = false, startTime = 0, timerId = null;
+
+function reset() {
+  running = false;
+  if (timerId) { clearInterval(timerId); timerId = null; }
+  for (let i = 0; i < 4; i++) {
+    const b = document.getElementById('ms-' + i);
+    b.className = 'ms-box';
+    b.style.background = ''; b.style.borderColor = '';
+    document.getElementById('task-' + i).textContent = '대기중';
+    document.getElementById('task-' + i).style.color = '';
+  }
+  const c = document.getElementById('client');
+  c.className = 'client';
+  c.style.background = ''; c.style.borderColor = '';
+  document.getElementById('client-state').textContent = '결제 버튼을 눌러주세요';
+  const btn = document.getElementById('pay-btn');
+  btn.disabled = false;
+  btn.textContent = '결제하기 ₩45,000';
+  document.getElementById('elapsed').textContent = '0.0s';
+  document.getElementById('step-count').textContent = '0 / 4';
+  document.getElementById('status-label').textContent = '대기';
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function startPayment() { runScenario(false); }
+
+async function runScenario(fail) {
+  if (running) return;
+  reset();
+  await sleep(50);
+  running = true;
+  startTime = Date.now();
+  const client = document.getElementById('client');
+  client.classList.add('blocked');
+  document.getElementById('client-state').innerHTML = '<span class="spinner"></span>응답 대기중... 아무것도 못 함';
+  const btn = document.getElementById('pay-btn');
+  btn.disabled = true;
+  btn.textContent = '처리중...';
+  document.getElementById('status-label').textContent = '블로킹';
+
+  timerId = setInterval(() => {
+    document.getElementById('elapsed').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+  }, 50);
+
+  const failAt = fail ? 1 : -1;
+
+  for (let i = 0; i < services.length; i++) {
+    if (!running) return;
+    const box = document.getElementById('ms-' + i);
+    const taskEl = document.getElementById('task-' + i);
+    box.className = 'ms-box active';
+    const svc = services[i];
+    const subDuration = svc.duration / svc.tasks.length;
+    for (let j = 0; j < svc.tasks.length; j++) {
+      if (i === failAt && j === svc.tasks.length - 1) {
+        taskEl.textContent = '잔액 부족 — 실패';
+        taskEl.style.color = '#A32D2D';
+        box.className = 'ms-box';
+        box.style.background = '#FCEBEB';
+        box.style.borderColor = '#E24B4A';
+        await sleep(subDuration);
+        clearInterval(timerId);
+        const total = ((Date.now() - startTime) / 1000).toFixed(1);
+        document.getElementById('elapsed').textContent = total + 's';
+        client.classList.remove('blocked');
+        client.style.background = '#FCEBEB';
+        client.style.borderColor = '#E24B4A';
+        document.getElementById('client-state').textContent = '결제 실패 — ' + total + '초 기다리고 롤백';
+        btn.textContent = '실패';
+        document.getElementById('status-label').textContent = '실패';
+        running = false;
+        return;
+      }
+      taskEl.textContent = svc.tasks[j];
+      await sleep(subDuration);
+    }
+    box.className = 'ms-box done';
+    document.getElementById('step-count').textContent = (i + 1) + ' / 4';
+  }
+
+  clearInterval(timerId);
+  const total = ((Date.now() - startTime) / 1000).toFixed(1);
+  document.getElementById('elapsed').textContent = total + 's';
+  client.classList.remove('blocked');
+  client.classList.add('success');
+  document.getElementById('client-state').textContent = '결제 완료 — 총 ' + total + '초 대기';
+  btn.textContent = '완료';
+  document.getElementById('status-label').textContent = '완료';
+  running = false;
+}
+</script>
+</body>
+</html>

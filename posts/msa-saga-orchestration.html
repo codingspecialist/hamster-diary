@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>4. Saga 오케스트레이션 - 대출 심사</title>
+<style>
+:root {
+  --bg: #faf9f5; --surface: #ffffff; --surface-alt: #f1efe8;
+  --bg-tertiary: #e8e6df;
+  --text: #1a1a1a; --text-sec: #5f5e5a; --text-ter: #888780;
+  --border: rgba(0,0,0,0.1); --border-strong: rgba(0,0,0,0.2);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1e1c; --surface: #2a2926; --surface-alt: #34332f;
+    --bg-tertiary: #232220;
+    --text: #f0eee6; --text-sec: #a0a09c; --text-ter: #6a6a66;
+    --border: rgba(255,255,255,0.12); --border-strong: rgba(255,255,255,0.22);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  background: var(--bg); color: var(--text);
+  margin: 0; padding: 24px 16px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 720px; margin: 0 auto; }
+h1 { font-size: 20px; font-weight: 500; margin: 0 0 6px; }
+.subtitle { font-size: 13px; color: var(--text-sec); margin-bottom: 24px; }
+button {
+  background: var(--surface); border: 0.5px solid var(--border-strong);
+  border-radius: 8px; padding: 8px 14px; font-size: 13px;
+  color: var(--text); cursor: pointer; font-family: inherit;
+  transition: background 0.15s;
+}
+button:hover { background: var(--surface-alt); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+.client {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 12px; padding: 14px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  transition: background 0.3s, border-color 0.3s;
+}
+.client.processing { background: #E6F1FB; border-color: #185FA5; }
+.client.success { background: #E1F5EE; border-color: #1D9E75; }
+.client.aborted { background: #FCEBEB; border-color: #E24B4A; }
+.client.rejected { background: var(--bg-tertiary); border-color: var(--border-strong); }
+@media (prefers-color-scheme: dark) {
+  .client.processing { background: #042C53; }
+  .client.success { background: #04342C; }
+  .client.aborted { background: #501313; }
+}
+.orch {
+  background: #E6F1FB; border: 0.5px solid #185FA5;
+  border-radius: 12px; padding: 14px 16px; margin: 12px 0;
+}
+@media (prefers-color-scheme: dark) {
+  .orch { background: #042C53; }
+}
+.orch-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px; gap: 8px; flex-wrap: wrap;
+}
+.orch-title { font-size: 13px; font-weight: 500; color: #0C447C; }
+@media (prefers-color-scheme: dark) {
+  .orch-title { color: #B5D4F4; }
+}
+.orch-state-badge {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 3px 10px; border-radius: 999px;
+  background: #B5D4F4; color: #042C53;
+  transition: background 0.3s, color 0.3s;
+}
+.orch-state-badge.completed { background: #C0DD97; color: #173404; }
+.orch-state-badge.rejected { background: #D3D1C7; color: #2C2C2A; }
+.orch-state-badge.compensating { background: #F7C1C1; color: #501313; }
+.orch-state-badge.aborted { background: #D3D1C7; color: #2C2C2A; }
+.orch-debug {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; color: #0C447C; line-height: 1.7;
+  background: rgba(255,255,255,0.5); border-radius: 6px;
+  padding: 8px 12px;
+}
+@media (prefers-color-scheme: dark) {
+  .orch-debug { background: rgba(0,0,0,0.3); color: #B5D4F4; }
+}
+.orch-var {
+  display: flex; justify-content: space-between; padding: 1px 0;
+}
+.orch-var .key { color: #185FA5; }
+.orch-var .val { color: #042C53; font-weight: 500; }
+.orch-var .val.empty { color: var(--text-ter); font-weight: 400; }
+@media (prefers-color-scheme: dark) {
+  .orch-var .key { color: #85B7EB; }
+  .orch-var .val { color: #E6F1FB; }
+}
+.orch-decision {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 0.5px solid #B5D4F4;
+  display: flex; justify-content: space-between;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #0C447C;
+}
+@media (prefers-color-scheme: dark) {
+  .orch-decision { border-top-color: #185FA5; color: #B5D4F4; }
+}
+.orch-decision .val { font-weight: 500; }
+.orch-decision .val.proceed { color: #0F6E56; }
+.orch-decision .val.reject { color: #A32D2D; }
+.orch-decision .val.compensate { color: #BA7517; }
+@media (prefers-color-scheme: dark) {
+  .orch-decision .val.proceed { color: #5DCAA5; }
+  .orch-decision .val.reject { color: #F09595; }
+  .orch-decision .val.compensate { color: #FAC775; }
+}
+.bidir {
+  display: flex; justify-content: center; gap: 32px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin: 6px 0;
+}
+.bidir .cmd { color: #185FA5; }
+.bidir .evt { color: #0F6E56; }
+@media (prefers-color-scheme: dark) {
+  .bidir .cmd { color: #85B7EB; }
+  .bidir .evt { color: #5DCAA5; }
+}
+.ms-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px; margin: 10px 0 16px;
+}
+.ms-box {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 8px; padding: 12px 8px; text-align: center;
+  transition: background 0.3s, border-color 0.3s, opacity 0.3s;
+}
+.ms-box.commanded { background: #E6F1FB; border-color: #185FA5; }
+.ms-box.processing { background: #FAEEDA; border-color: #BA7517; }
+.ms-box.done { background: #E1F5EE; border-color: #1D9E75; }
+.ms-box.compensating { background: #FCEBEB; border-color: #E24B4A; }
+.ms-box.cancelled { background: var(--bg-tertiary); border-color: var(--border); }
+.ms-box.failed { background: #FCEBEB; border-color: #E24B4A; }
+.ms-box.skipped { opacity: 0.4; }
+@media (prefers-color-scheme: dark) {
+  .ms-box.commanded { background: #042C53; }
+  .ms-box.processing { background: #412402; }
+  .ms-box.done { background: #04342C; }
+  .ms-box.compensating, .ms-box.failed { background: #501313; }
+}
+.ms-name { font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+.ms-task { font-size: 11px; color: var(--text-sec); min-height: 14px; }
+.ms-box.commanded .ms-name { color: #0C447C; }
+.ms-box.processing .ms-name, .ms-box.processing .ms-task { color: #854F0B; }
+.ms-box.done .ms-name, .ms-box.done .ms-task { color: #085041; }
+.ms-box.compensating .ms-name, .ms-box.compensating .ms-task,
+.ms-box.failed .ms-name, .ms-box.failed .ms-task { color: #791F1F; }
+.ms-box.cancelled .ms-name { color: var(--text-ter); text-decoration: line-through; }
+@media (prefers-color-scheme: dark) {
+  .ms-box.commanded .ms-name { color: #B5D4F4; }
+  .ms-box.processing .ms-name, .ms-box.processing .ms-task { color: #FAC775; }
+  .ms-box.done .ms-name, .ms-box.done .ms-task { color: #9FE1CB; }
+  .ms-box.compensating .ms-name, .ms-box.compensating .ms-task,
+  .ms-box.failed .ms-name, .ms-box.failed .ms-task { color: #F7C1C1; }
+}
+.dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--border-strong); margin-right: 5px; vertical-align: middle;
+}
+.ms-box.commanded .dot { background: #185FA5; animation: pulse 1s infinite; }
+.ms-box.processing .dot { background: #EF9F27; animation: pulse 1s infinite; }
+.ms-box.done .dot { background: #1D9E75; }
+.ms-box.compensating .dot { background: #E24B4A; animation: pulse 1s infinite; }
+.ms-box.failed .dot { background: #E24B4A; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.stats {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+}
+.stat {
+  background: var(--surface-alt); border-radius: 8px; padding: 12px;
+}
+.stat-label { font-size: 12px; color: var(--text-sec); }
+.stat-value { font-size: 22px; font-weight: 500; margin-top: 2px; }
+.controls { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.note {
+  margin-top: 24px; font-size: 12px; color: var(--text-sec);
+  border-top: 0.5px solid var(--border); padding-top: 14px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>4. Saga 오케스트레이션 패턴</h1>
+  <div class="subtitle">대출 심사 시뮬레이션 — 중앙 매니저가 명령을 내리고 결과를 수집해 결정</div>
+
+  <div class="client" id="client">
+    <div style="min-width: 0;">
+      <div style="font-size: 13px; color: var(--text-sec); margin-bottom: 4px;">고객 — ₩2억 신용대출 신청</div>
+      <div style="font-size: 15px; font-weight: 500;" id="client-state">시나리오를 선택해 주세요</div>
+    </div>
+  </div>
+
+  <div class="orch">
+    <div class="orch-header">
+      <div class="orch-title">오케스트레이터 — 대출심사 매니저</div>
+      <div class="orch-state-badge" id="saga-state">SAGA: idle</div>
+    </div>
+    <div class="orch-debug">
+      <div class="orch-var"><span class="key">currentStep</span><span class="val empty" id="v-step">--</span></div>
+      <div class="orch-var"><span class="key">creditScore</span><span class="val empty" id="v-credit">--</span></div>
+      <div class="orch-var"><span class="key">monthlyIncome</span><span class="val empty" id="v-income">--</span></div>
+      <div class="orch-var"><span class="key">approvedLimit</span><span class="val empty" id="v-limit">--</span></div>
+      <div class="orch-var"><span class="key">transferId</span><span class="val empty" id="v-tx">--</span></div>
+      <div class="orch-decision"><span>lastDecision</span><span class="val" id="v-decision">--</span></div>
+    </div>
+  </div>
+
+  <div class="bidir"><span class="cmd">↓ command</span><span class="evt">↑ event</span></div>
+
+  <div class="ms-grid">
+    <div class="ms-box" id="ms-0"><div class="ms-name"><span class="dot"></span>신용평가 MS</div><div class="ms-task" id="task-0">대기</div></div>
+    <div class="ms-box" id="ms-1"><div class="ms-name"><span class="dot"></span>소득 검증 MS</div><div class="ms-task" id="task-1">대기</div></div>
+    <div class="ms-box" id="ms-2"><div class="ms-name"><span class="dot"></span>한도 책정 MS</div><div class="ms-task" id="task-2">대기</div></div>
+    <div class="ms-box" id="ms-3"><div class="ms-name"><span class="dot"></span>자금 이체 MS</div><div class="ms-task" id="task-3">대기</div></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-label">진행 단계</div><div class="stat-value" id="progress">0 / 4</div></div>
+    <div class="stat"><div class="stat-label">보상 트랜잭션</div><div class="stat-value" id="comps">0회</div></div>
+    <div class="stat"><div class="stat-label">총 소요 시간</div><div class="stat-value" id="elapsed">0.0s</div></div>
+  </div>
+
+  <div class="controls">
+    <button onclick="runScenario('premium')">우량 고객 (자동 승인)</button>
+    <button onclick="runScenario('lowCredit')">신용점수 부족 (조기 거절)</button>
+    <button onclick="runScenario('transferFail')">이체 실패 (보상 발동)</button>
+    <button onclick="reset()">초기화</button>
+  </div>
+
+  <div class="note">
+    <strong>관찰 포인트</strong>: 위쪽 파란색 박스가 오케스트레이터의 중앙 상태입니다. 단계가 진행될 때마다 변수가 채워지고 결정(PROCEED/REJECT/COMPENSATE)이 기록됩니다. 신용점수 부족 시 나머지 서비스에는 명령조차 보내지 않습니다.
+  </div>
+</div>
+
+<script>
+const services = [
+  { name: '신용평가', cmd: 'GetCreditScore', evt: 'CreditScoreReturned', task: '신용점수 조회중', duration: 1100, compTask: '조회 철회 통보', compDuration: 600 },
+  { name: '소득 검증', cmd: 'VerifyIncome', evt: 'IncomeVerified', task: '소득 자료 확인중', duration: 1300, compTask: '검증 기록 무효화', compDuration: 600 },
+  { name: '한도 책정', cmd: 'CalculateLimit', evt: 'LimitCalculated', task: '대출 한도 산정중', duration: 1100, compTask: '한도 예약 해제', compDuration: 600 },
+  { name: '자금 이체', cmd: 'TransferFunds', evt: 'TransferCompleted', task: '계좌로 송금중', duration: 1500, compTask: '송금 시도 취소', compDuration: 700 }
+];
+
+const scenarios = {
+  premium: { creditScore: 780, monthlyIncome: '6,500,000', approvedLimit: '200,000,000', transferId: 'TX-A4F2K9', failAt: -1 },
+  lowCredit: { creditScore: 540, monthlyIncome: null, approvedLimit: null, transferId: null, failAt: 0, failKind: 'reject' },
+  transferFail: { creditScore: 720, monthlyIncome: '5,500,000', approvedLimit: '180,000,000', transferId: null, failAt: 3, failKind: 'compensate' }
+};
+
+let running = false, startTime = 0, timerId = null;
+
+function setSaga(s, label) {
+  const el = document.getElementById('saga-state');
+  el.className = 'orch-state-badge ' + s;
+  el.textContent = 'SAGA: ' + label;
+}
+
+function setVar(id, value, isEmpty) {
+  const el = document.getElementById(id);
+  el.textContent = value;
+  el.className = 'val' + (isEmpty ? ' empty' : '');
+}
+
+function setDecision(text, kind) {
+  const el = document.getElementById('v-decision');
+  el.textContent = text;
+  el.className = 'val ' + kind;
+}
+
+function reset() {
+  running = false;
+  if (timerId) { clearInterval(timerId); timerId = null; }
+  for (let i = 0; i < 4; i++) {
+    document.getElementById('ms-' + i).className = 'ms-box';
+    document.getElementById('task-' + i).textContent = '대기';
+  }
+  document.getElementById('client').className = 'client';
+  document.getElementById('client-state').textContent = '시나리오를 선택해 주세요';
+  setSaga('', 'idle');
+  setVar('v-step', '--', true);
+  setVar('v-credit', '--', true);
+  setVar('v-income', '--', true);
+  setVar('v-limit', '--', true);
+  setVar('v-tx', '--', true);
+  setDecision('--', '');
+  document.getElementById('progress').textContent = '0 / 4';
+  document.getElementById('comps').textContent = '0회';
+  document.getElementById('elapsed').textContent = '0.0s';
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runScenario(key) {
+  if (running) return;
+  reset();
+  await sleep(50);
+  running = true;
+  startTime = Date.now();
+  const s = scenarios[key];
+
+  document.getElementById('client').classList.add('processing');
+  document.getElementById('client-state').textContent = '대출 심사 진행중';
+  setSaga('', 'IN_PROGRESS');
+
+  timerId = setInterval(() => {
+    document.getElementById('elapsed').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+  }, 50);
+
+  const completed = [];
+  const varIds = ['v-credit', 'v-income', 'v-limit', 'v-tx'];
+  const varValues = [s.creditScore, s.monthlyIncome, s.approvedLimit, s.transferId];
+
+  for (let i = 0; i < services.length; i++) {
+    if (!running) return;
+    const svc = services[i];
+    const box = document.getElementById('ms-' + i);
+    const taskEl = document.getElementById('task-' + i);
+
+    setVar('v-step', svc.cmd + ' (' + (i + 1) + '/4)', false);
+    setDecision('SENDING_COMMAND', '');
+    box.className = 'ms-box commanded';
+    taskEl.textContent = '명령 수신: ' + svc.cmd;
+    await sleep(400);
+
+    box.className = 'ms-box processing';
+    taskEl.textContent = svc.task;
+    await sleep(svc.duration);
+
+    if (i === s.failAt) {
+      box.className = 'ms-box failed';
+      if (s.failKind === 'reject') {
+        taskEl.textContent = '점수 ' + s.creditScore + ' — 기준 미달';
+        setVar('v-credit', s.creditScore + ' (FAIL)', false);
+        setDecision('REJECT — 워크플로 중단', 'reject');
+        setSaga('rejected', 'REJECTED');
+        for (let k = i + 1; k < 4; k++) {
+          document.getElementById('ms-' + k).classList.add('skipped');
+          document.getElementById('task-' + k).textContent = '명령 미발송';
+        }
+        const c = document.getElementById('client');
+        c.classList.remove('processing');
+        c.classList.add('rejected');
+        document.getElementById('client-state').textContent = '대출 거절 — 신용점수 기준 미달 (이후 단계 생략)';
+        clearInterval(timerId);
+        document.getElementById('elapsed').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+        running = false;
+        return;
+      } else {
+        taskEl.textContent = '은행 API 타임아웃';
+        setDecision('COMPENSATE — 보상 시작', 'compensate');
+        setSaga('compensating', 'COMPENSATING');
+        const c = document.getElementById('client');
+        c.classList.remove('processing');
+        c.classList.add('aborted');
+        document.getElementById('client-state').textContent = '이체 실패 감지 — 보상 트랜잭션 발동';
+        await sleep(700);
+
+        let comps = 0;
+        for (let k = completed.length - 1; k >= 0; k--) {
+          const idx = completed[k];
+          const cbox = document.getElementById('ms-' + idx);
+          const ctask = document.getElementById('task-' + idx);
+          const csvc = services[idx];
+          setVar('v-step', 'Compensate' + csvc.name + ' (' + (idx + 1) + '/4)', false);
+          cbox.className = 'ms-box compensating';
+          ctask.textContent = csvc.compTask;
+          await sleep(csvc.compDuration);
+          cbox.className = 'ms-box cancelled';
+          ctask.textContent = '취소됨';
+          setVar(varIds[idx], '(rolled back)', true);
+          comps++;
+          document.getElementById('comps').textContent = comps + '회';
+        }
+
+        clearInterval(timerId);
+        document.getElementById('elapsed').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+        document.getElementById('client-state').textContent = '대출 신청 실패 — 모든 단계 롤백 완료';
+        setSaga('aborted', 'ABORTED');
+        setDecision('ABORTED', 'reject');
+        running = false;
+        return;
+      }
+    }
+
+    box.className = 'ms-box done';
+    taskEl.textContent = svc.evt;
+    setVar(varIds[i], varValues[i], false);
+    setDecision('PROCEED → ' + (i < 3 ? services[i + 1].cmd : 'finish'), 'proceed');
+    completed.push(i);
+    document.getElementById('progress').textContent = (i + 1) + ' / 4';
+    await sleep(300);
+  }
+
+  clearInterval(timerId);
+  document.getElementById('elapsed').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+  setVar('v-step', 'COMPLETED', false);
+  setDecision('APPROVED — saga 완료', 'proceed');
+  setSaga('completed', 'COMPLETED');
+  const c = document.getElementById('client');
+  c.classList.remove('processing');
+  c.classList.add('success');
+  document.getElementById('client-state').textContent = '대출 승인 — ₩200,000,000 입금 완료';
+  running = false;
+}
+</script>
+</body>
+</html>

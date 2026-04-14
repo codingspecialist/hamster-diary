@@ -6,9 +6,73 @@
     "Git",
     "Marketing",
     "마케팅",
-    "Kafka"
+    "Kafka",
+    "MSA"
   ],
   "posts": [
+    {
+      "id": "msa-saga-orchestration",
+      "title": "Saga 오케스트레이션 패턴 - 대출 심사",
+      "date": "2026-04-14",
+      "category": "MSA",
+      "summary": "중앙 오케스트레이터가 Saga 트랜잭션을 지휘하여 여러 서비스(신용조회, 자산평가, 대출승인)를 순차 실행하고 실패 시 보상 트랜잭션을 수행하는 패턴.",
+      "filename": "posts/msa-saga-orchestration.html",
+      "tags": [
+        "MSA",
+        "Saga",
+        "Orchestration",
+        "Kafka",
+        "분산트랜잭션",
+        "보상트랜잭션"
+      ]
+    },
+    {
+      "id": "msa-saga-choreography",
+      "title": "Saga 코레오그래피 패턴 - 여행 예약",
+      "date": "2026-04-14",
+      "category": "MSA",
+      "summary": "중앙 조정자 없이 각 서비스가 이벤트를 주고받으며 협력하는 Saga 패턴. 여행 예약(항공/호텔/렌터카) 시나리오로 이벤트 기반 분산 트랜잭션을 구현.",
+      "filename": "posts/msa-saga-choreography.html",
+      "tags": [
+        "MSA",
+        "Saga",
+        "Choreography",
+        "Kafka",
+        "이벤트기반",
+        "분산트랜잭션"
+      ]
+    },
+    {
+      "id": "msa-kafka-async",
+      "title": "Kafka 비동기 메시징 패턴 - 결제 처리",
+      "date": "2026-04-14",
+      "category": "MSA",
+      "summary": "Kafka를 활용한 비동기 MSA 패턴. 결제 서비스가 메시지를 발행하면 여러 컨슈머(알림/정산/분석)가 독립적으로 처리하여 확장성과 복원력을 확보.",
+      "filename": "posts/msa-kafka-async.html",
+      "tags": [
+        "MSA",
+        "Kafka",
+        "비동기",
+        "메시징",
+        "결제",
+        "이벤트기반"
+      ]
+    },
+    {
+      "id": "msa-sync-blocking",
+      "title": "동기 블로킹 MSA 패턴 - 결제 처리",
+      "date": "2026-04-14",
+      "category": "MSA",
+      "summary": "전통적인 REST 기반 동기 호출로 구현한 MSA 결제 처리. 직관적이지만 장애 전파와 지연 누적 문제가 있는 기본 패턴을 비교 학습용으로 정리.",
+      "filename": "posts/msa-sync-blocking.html",
+      "tags": [
+        "MSA",
+        "REST",
+        "동기호출",
+        "블로킹",
+        "결제"
+      ]
+    },
     {
       "id": "kafka-python-docker",
       "title": "Kafka + Python + Docker 비동기 메시징 예제",

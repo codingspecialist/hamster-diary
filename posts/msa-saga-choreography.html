@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3. Saga 코레오그래피 - 여행 예약</title>
+<style>
+:root {
+  --bg: #faf9f5; --surface: #ffffff; --surface-alt: #f1efe8;
+  --bg-tertiary: #e8e6df;
+  --text: #1a1a1a; --text-sec: #5f5e5a; --text-ter: #888780;
+  --border: rgba(0,0,0,0.1); --border-strong: rgba(0,0,0,0.2);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1e1c; --surface: #2a2926; --surface-alt: #34332f;
+    --bg-tertiary: #232220;
+    --text: #f0eee6; --text-sec: #a0a09c; --text-ter: #6a6a66;
+    --border: rgba(255,255,255,0.12); --border-strong: rgba(255,255,255,0.22);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  background: var(--bg); color: var(--text);
+  margin: 0; padding: 24px 16px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 720px; margin: 0 auto; }
+h1 { font-size: 20px; font-weight: 500; margin: 0 0 6px; }
+.subtitle { font-size: 13px; color: var(--text-sec); margin-bottom: 24px; }
+button {
+  background: var(--surface); border: 0.5px solid var(--border-strong);
+  border-radius: 8px; padding: 8px 14px; font-size: 13px;
+  color: var(--text); cursor: pointer; font-family: inherit;
+  transition: background 0.15s;
+}
+button:hover { background: var(--surface-alt); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+.client {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 12px; padding: 14px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  transition: background 0.3s, border-color 0.3s;
+}
+.client.processing { background: #FAEEDA; border-color: #BA7517; }
+.client.success { background: #E1F5EE; border-color: #1D9E75; }
+.client.aborted { background: #FCEBEB; border-color: #E24B4A; }
+@media (prefers-color-scheme: dark) {
+  .client.processing { background: #412402; }
+  .client.success { background: #04342C; }
+  .client.aborted { background: #501313; }
+}
+.saga-state {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 3px 8px; border-radius: 999px;
+  background: var(--bg-tertiary); color: var(--text-sec);
+  display: inline-block; margin-top: 4px;
+  transition: background 0.3s, color 0.3s;
+}
+.saga-state.in-progress { background: #FAEEDA; color: #854F0B; }
+.saga-state.compensating { background: #FCEBEB; color: #A32D2D; }
+.saga-state.completed { background: #E1F5EE; color: #085041; }
+.saga-state.aborted { background: var(--bg-tertiary); color: var(--text-sec); }
+.bus {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 8px; padding: 12px 14px; margin: 14px 0;
+}
+.bus-label {
+  font-size: 11px; color: var(--text-sec); margin-bottom: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.event-stream {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  min-height: 26px; align-items: center;
+}
+.event-pill {
+  font-size: 11px; padding: 4px 10px; border-radius: 999px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  animation: pop 0.35s ease-out;
+  border: 0.5px solid;
+}
+.event-pill.forward { background: #EEEDFE; border-color: #7F77DD; color: #3C3489; }
+.event-pill.fail { background: #FCEBEB; border-color: #E24B4A; color: #791F1F; }
+.event-pill.compensate { background: #FAEEDA; border-color: #EF9F27; color: #854F0B; }
+@media (prefers-color-scheme: dark) {
+  .event-pill.forward { background: #3C3489; border-color: #AFA9EC; color: #CECBF6; }
+  .event-pill.fail { background: #501313; border-color: #F09595; color: #F7C1C1; }
+  .event-pill.compensate { background: #412402; border-color: #FAC775; color: #FAC775; }
+}
+@keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.empty-stream {
+  font-size: 11px; color: var(--text-ter);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.arrow { text-align: center; font-size: 12px; color: var(--text-ter); margin: 6px 0; }
+.ms-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px; margin: 10px 0 16px;
+}
+.ms-box {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 8px; padding: 12px 8px; text-align: center;
+  transition: background 0.3s, border-color 0.3s;
+}
+.ms-box.processing { background: #FAEEDA; border-color: #BA7517; }
+.ms-box.booked { background: #E1F5EE; border-color: #1D9E75; }
+.ms-box.compensating { background: #FCEBEB; border-color: #E24B4A; }
+.ms-box.cancelled { background: var(--bg-tertiary); border-color: var(--border); }
+.ms-box.failed { background: #FCEBEB; border-color: #E24B4A; }
+@media (prefers-color-scheme: dark) {
+  .ms-box.processing { background: #412402; }
+  .ms-box.booked { background: #04342C; }
+  .ms-box.compensating, .ms-box.failed { background: #501313; }
+}
+.ms-name { font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+.ms-task { font-size: 11px; color: var(--text-sec); min-height: 14px; }
+.ms-box.processing .ms-name, .ms-box.processing .ms-task { color: #854F0B; }
+.ms-box.booked .ms-name, .ms-box.booked .ms-task { color: #085041; }
+.ms-box.compensating .ms-name, .ms-box.compensating .ms-task,
+.ms-box.failed .ms-name, .ms-box.failed .ms-task { color: #791F1F; }
+.ms-box.cancelled .ms-name { color: var(--text-ter); text-decoration: line-through; }
+.ms-box.cancelled .ms-task { color: var(--text-ter); }
+@media (prefers-color-scheme: dark) {
+  .ms-box.processing .ms-name, .ms-box.processing .ms-task { color: #FAC775; }
+  .ms-box.booked .ms-name, .ms-box.booked .ms-task { color: #9FE1CB; }
+  .ms-box.compensating .ms-name, .ms-box.compensating .ms-task,
+  .ms-box.failed .ms-name, .ms-box.failed .ms-task { color: #F7C1C1; }
+}
+.dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--border-strong); margin-right: 5px; vertical-align: middle;
+}
+.ms-box.processing .dot { background: #EF9F27; animation: pulse 1s infinite; }
+.ms-box.booked .dot { background: #1D9E75; }
+.ms-box.compensating .dot { background: #E24B4A; animation: pulse 1s infinite; }
+.ms-box.failed .dot { background: #E24B4A; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.stats {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+}
+.stat {
+  background: var(--surface-alt); border-radius: 8px; padding: 12px;
+}
+.stat-label { font-size: 12px; color: var(--text-sec); }
+.stat-value { font-size: 22px; font-weight: 500; margin-top: 2px; }
+.controls { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.note {
+  margin-top: 24px; font-size: 12px; color: var(--text-sec);
+  border-top: 0.5px solid var(--border); padding-top: 14px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>3. Saga 코레오그래피 패턴</h1>
+  <div class="subtitle">여행 예약 시뮬레이션 — 중앙 조율자 없이 각 서비스가 이벤트로 협력</div>
+
+  <div class="client" id="client">
+    <div style="min-width: 0;">
+      <div style="font-size: 13px; color: var(--text-sec); margin-bottom: 4px;">고객 — 도쿄 3박 4일 패키지</div>
+      <div style="font-size: 15px; font-weight: 500;" id="client-state">시나리오를 선택해 주세요</div>
+      <div class="saga-state" id="saga-state">SAGA: idle</div>
+    </div>
+  </div>
+
+  <div class="arrow">↓ 이벤트 발행 (오케스트레이터 없음)</div>
+
+  <div class="bus">
+    <div class="bus-label">event bus — 각 서비스가 직접 구독·발행</div>
+    <div class="event-stream" id="stream"><span class="empty-stream">발행된 이벤트 없음</span></div>
+  </div>
+
+  <div class="arrow">↓ 각 서비스가 자기 차례를 알아서 처리</div>
+
+  <div class="ms-grid">
+    <div class="ms-box" id="ms-0"><div class="ms-name"><span class="dot"></span>항공권 MS</div><div class="ms-task" id="task-0">대기</div></div>
+    <div class="ms-box" id="ms-1"><div class="ms-name"><span class="dot"></span>호텔 MS</div><div class="ms-task" id="task-1">대기</div></div>
+    <div class="ms-box" id="ms-2"><div class="ms-name"><span class="dot"></span>렌터카 MS</div><div class="ms-task" id="task-2">대기</div></div>
+    <div class="ms-box" id="ms-3"><div class="ms-name"><span class="dot"></span>결제 MS</div><div class="ms-task" id="task-3">대기</div></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-label">진행 단계</div><div class="stat-value" id="progress">0 / 4</div></div>
+    <div class="stat"><div class="stat-label">보상 트랜잭션</div><div class="stat-value" id="compensations">0회</div></div>
+    <div class="stat"><div class="stat-label">총 소요 시간</div><div class="stat-value" id="elapsed">0.0s</div></div>
+  </div>
+
+  <div class="controls">
+    <button onclick="runScenario(-1)">전체 성공</button>
+    <button onclick="runScenario(2)">렌터카 매진</button>
+    <button onclick="runScenario(3)">결제 실패 (가장 비싼 롤백)</button>
+    <button onclick="reset()">초기화</button>
+  </div>
+
+  <div class="note">
+    <strong>관찰 포인트</strong>: 어디에도 "오케스트레이터"가 없습니다. 호텔 MS는 FlightBooked를 구독해서 알아서 시작하고, 렌터카 MS는 HotelBooked를 구독합니다. 실패 시 보상 이벤트가 거꾸로 전파됩니다 — 늦게 실패할수록 정리할 게 많아집니다.
+  </div>
+</div>
+
+<script>
+const services = [
+  { name: '항공권', tasks: ['항공편 검색', '좌석 확보', '예약 확정'], duration: 1500, eventOut: 'FlightBooked', compTasks: ['예약 취소중', '환불 요청'], compDuration: 900, compEvent: 'FlightCancelled' },
+  { name: '호텔', tasks: ['객실 검색', '객실 확보', '예약 확정'], duration: 1400, eventOut: 'HotelBooked', compTasks: ['예약 취소중', '취소 확정'], compDuration: 800, compEvent: 'HotelCancelled' },
+  { name: '렌터카', tasks: ['차량 검색', '차량 확보', '예약 확정'], duration: 1400, eventOut: 'CarBooked', compTasks: ['예약 취소중', '취소 확정'], compDuration: 700, compEvent: 'CarCancelled' },
+  { name: '결제', tasks: ['카드 검증', '승인 요청', '결제 완료'], duration: 1500, eventOut: 'PaymentCompleted', compTasks: ['환불 처리중', '환불 완료'], compDuration: 800, compEvent: 'PaymentRefunded' }
+];
+
+let running = false, startTime = 0, timerId = null, comps = 0;
+
+function setSagaState(s, label) {
+  const el = document.getElementById('saga-state');
+  el.className = 'saga-state ' + s;
+  el.textContent = 'SAGA: ' + label;
+}
+
+function reset() {
+  running = false;
+  if (timerId) { clearInterval(timerId); timerId = null; }
+  comps = 0;
+  for (let i = 0; i < 4; i++) {
+    document.getElementById('ms-' + i).className = 'ms-box';
+    document.getElementById('task-' + i).textContent = '대기';
+  }
+  document.getElementById('client').className = 'client';
+  document.getElementById('client-state').textContent = '시나리오를 선택해 주세요';
+  setSagaState('', 'idle');
+  document.getElementById('stream').innerHTML = '<span class="empty-stream">발행된 이벤트 없음</span>';
+  document.getElementById('progress').textContent = '0 / 4';
+  document.getElementById('compensations').textContent = '0회';
+  document.getElementById('elapsed').textContent = '0.0s';
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function publishEvent(name, kind) {
+  const stream = document.getElementById('stream');
+  const empty = stream.querySelector('.empty-stream');
+  if (empty) empty.remove();
+  const t = ((Date.now() - startTime) / 1000).toFixed(1);
+  const pill = document.createElement('span');
+  pill.className = 'event-pill ' + kind;
+  pill.textContent = name + ' @' + t + 's';
+  stream.appendChild(pill);
+}
+
+async function runScenario(failAt) {
+  if (running) return;
+  reset();
+  await sleep(50);
+  running = true;
+  startTime = Date.now();
+  const client = document.getElementById('client');
+  client.classList.add('processing');
+  document.getElementById('client-state').textContent = '여행 패키지 예약 진행중';
+  setSagaState('in-progress', 'IN_PROGRESS');
+  publishEvent('TripRequested', 'forward');
+
+  timerId = setInterval(() => {
+    document.getElementById('elapsed').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+  }, 50);
+
+  const completed = [];
+
+  for (let i = 0; i < services.length; i++) {
+    if (!running) return;
+    const box = document.getElementById('ms-' + i);
+    const taskEl = document.getElementById('task-' + i);
+    box.className = 'ms-box processing';
+    const svc = services[i];
+    const sub = svc.duration / svc.tasks.length;
+    for (let j = 0; j < svc.tasks.length; j++) {
+      taskEl.textContent = svc.tasks[j];
+      await sleep(sub);
+    }
+
+    if (i === failAt) {
+      box.className = 'ms-box failed';
+      taskEl.textContent = i === 2 ? '차량 매진 — 실패' : '카드 한도 초과';
+      publishEvent(svc.name + 'Failed', 'fail');
+      document.getElementById('client-state').textContent = '실패 감지 — 보상 트랜잭션 시작';
+      setSagaState('compensating', 'COMPENSATING');
+      client.classList.remove('processing');
+      client.classList.add('aborted');
+      await sleep(600);
+
+      for (let k = completed.length - 1; k >= 0; k--) {
+        const idx = completed[k];
+        const cbox = document.getElementById('ms-' + idx);
+        const ctask = document.getElementById('task-' + idx);
+        const csvc = services[idx];
+        cbox.className = 'ms-box compensating';
+        const csub = csvc.compDuration / csvc.compTasks.length;
+        for (let j = 0; j < csvc.compTasks.length; j++) {
+          ctask.textContent = csvc.compTasks[j];
+          await sleep(csub);
+        }
+        cbox.className = 'ms-box cancelled';
+        ctask.textContent = '취소됨';
+        publishEvent(csvc.compEvent, 'compensate');
+        comps++;
+        document.getElementById('compensations').textContent = comps + '회';
+      }
+
+      clearInterval(timerId);
+      const total = ((Date.now() - startTime) / 1000).toFixed(1);
+      document.getElementById('elapsed').textContent = total + 's';
+      document.getElementById('client-state').textContent = '예약 실패 — 모두 취소되었습니다 (' + comps + '단계 롤백)';
+      setSagaState('aborted', 'ABORTED');
+      running = false;
+      return;
+    }
+
+    box.className = 'ms-box booked';
+    taskEl.textContent = '예약 완료';
+    publishEvent(svc.eventOut, 'forward');
+    completed.push(i);
+    document.getElementById('progress').textContent = (i + 1) + ' / 4';
+  }
+
+  clearInterval(timerId);
+  const total = ((Date.now() - startTime) / 1000).toFixed(1);
+  document.getElementById('elapsed').textContent = total + 's';
+  client.classList.remove('processing');
+  client.classList.add('success');
+  document.getElementById('client-state').textContent = '여행 확정 — 즐거운 여행 되세요 (' + total + '초)';
+  setSagaState('completed', 'COMPLETED');
+  running = false;
+}
+</script>
+</body>
+</html>

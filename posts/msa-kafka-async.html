@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2. Kafka 비동기 MSA - 결제 처리</title>
+<style>
+:root {
+  --bg: #faf9f5; --surface: #ffffff; --surface-alt: #f1efe8;
+  --text: #1a1a1a; --text-sec: #5f5e5a; --text-ter: #888780;
+  --border: rgba(0,0,0,0.1); --border-strong: rgba(0,0,0,0.2);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1e1c; --surface: #2a2926; --surface-alt: #34332f;
+    --text: #f0eee6; --text-sec: #a0a09c; --text-ter: #6a6a66;
+    --border: rgba(255,255,255,0.12); --border-strong: rgba(255,255,255,0.22);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  background: var(--bg); color: var(--text);
+  margin: 0; padding: 24px 16px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 720px; margin: 0 auto; }
+h1 { font-size: 20px; font-weight: 500; margin: 0 0 6px; }
+.subtitle { font-size: 13px; color: var(--text-sec); margin-bottom: 24px; }
+button {
+  background: var(--surface); border: 0.5px solid var(--border-strong);
+  border-radius: 8px; padding: 8px 14px; font-size: 13px;
+  color: var(--text); cursor: pointer; font-family: inherit;
+  transition: background 0.15s;
+}
+button:hover { background: var(--surface-alt); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+.client {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 12px; padding: 16px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  transition: background 0.3s, border-color 0.3s;
+}
+.client.free { background: #E1F5EE; border-color: #1D9E75; }
+@media (prefers-color-scheme: dark) {
+  .client.free { background: #04342C; border-color: #1D9E75; }
+}
+.shop-panel {
+  background: var(--surface-alt);
+  border: 0.5px dashed var(--border); border-radius: 8px;
+  padding: 12px 14px; margin-top: 8px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; opacity: 0.5;
+  transition: opacity 0.3s, background 0.3s, border-color 0.3s;
+}
+.shop-panel.active {
+  opacity: 1; border-style: solid;
+  border-color: #1D9E75; background: #E1F5EE;
+}
+@media (prefers-color-scheme: dark) {
+  .shop-panel.active { background: #04342C; }
+}
+.kafka-strip {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 8px; padding: 12px 14px; margin: 14px 0;
+}
+.kafka-label {
+  font-size: 11px; color: var(--text-sec); margin-bottom: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.event-stream {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  min-height: 26px; align-items: center;
+}
+.event-pill {
+  background: #EEEDFE; border: 0.5px solid #7F77DD; color: #3C3489;
+  font-size: 11px; padding: 4px 10px; border-radius: 999px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  animation: pop 0.35s ease-out;
+}
+@media (prefers-color-scheme: dark) {
+  .event-pill { background: #3C3489; border-color: #AFA9EC; color: #CECBF6; }
+}
+@keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.empty-stream {
+  font-size: 11px; color: var(--text-ter);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.arrow { text-align: center; font-size: 12px; color: var(--text-ter); margin: 6px 0; }
+.ms-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px; margin: 10px 0 16px;
+}
+.ms-box {
+  background: var(--surface-alt); border: 0.5px solid var(--border);
+  border-radius: 8px; padding: 12px 8px; text-align: center;
+  transition: background 0.3s, border-color 0.3s;
+}
+.ms-box.active { background: #FAEEDA; border-color: #BA7517; }
+.ms-box.done { background: #E1F5EE; border-color: #1D9E75; }
+@media (prefers-color-scheme: dark) {
+  .ms-box.active { background: #412402; border-color: #BA7517; }
+  .ms-box.done { background: #04342C; border-color: #1D9E75; }
+}
+.ms-name { font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+.ms-task { font-size: 11px; color: var(--text-sec); min-height: 14px; }
+.ms-box.active .ms-name, .ms-box.active .ms-task { color: #854F0B; }
+.ms-box.done .ms-name, .ms-box.done .ms-task { color: #0F6E56; }
+@media (prefers-color-scheme: dark) {
+  .ms-box.active .ms-name, .ms-box.active .ms-task { color: #FAC775; }
+  .ms-box.done .ms-name, .ms-box.done .ms-task { color: #9FE1CB; }
+}
+.dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--border-strong); margin-right: 5px; vertical-align: middle;
+}
+.ms-box.active .dot { background: #EF9F27; animation: pulse 1s infinite; }
+.ms-box.done .dot { background: #1D9E75; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.stats {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+}
+.stat {
+  background: var(--surface-alt); border-radius: 8px; padding: 12px;
+}
+.stat-label { font-size: 12px; color: var(--text-sec); }
+.stat-value { font-size: 22px; font-weight: 500; margin-top: 2px; }
+.stat-value.success { color: #0F6E56; }
+@media (prefers-color-scheme: dark) {
+  .stat-value.success { color: #9FE1CB; }
+}
+.notif {
+  background: #E1F5EE; border: 0.5px solid #1D9E75; color: #085041;
+  padding: 12px 14px; border-radius: 8px; font-size: 14px;
+  margin-top: 12px; display: none; animation: pop 0.4s;
+}
+@media (prefers-color-scheme: dark) {
+  .notif { background: #04342C; color: #9FE1CB; }
+}
+.controls { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.note {
+  margin-top: 24px; font-size: 12px; color: var(--text-sec);
+  border-top: 0.5px solid var(--border); padding-top: 14px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>2. Kafka 비동기 메시징 패턴</h1>
+  <div class="subtitle">결제 처리 시뮬레이션 — 클라이언트는 즉시 풀려나고 백엔드가 백그라운드 처리</div>
+
+  <div class="client" id="client">
+    <div style="min-width: 0;">
+      <div style="font-size: 13px; color: var(--text-sec); margin-bottom: 4px;">고객 (클라이언트)</div>
+      <div style="font-size: 15px; font-weight: 500;" id="client-state">결제 버튼을 눌러주세요</div>
+    </div>
+    <button onclick="startPayment()" id="pay-btn">결제하기 ₩45,000</button>
+  </div>
+
+  <div class="shop-panel" id="shop-panel">
+    <div style="min-width: 0;">
+      <div style="font-size: 12px; color: var(--text-sec);">결제 처리는 백그라운드에서 진행중</div>
+      <div style="font-size: 13px; font-weight: 500;" id="shop-item">결제 후 다른 활동을 할 수 있어요</div>
+    </div>
+    <button onclick="shop()" id="shop-btn" disabled>다른 상품 보기</button>
+  </div>
+
+  <div class="arrow">↓ 이벤트 발행 (논블로킹)</div>
+
+  <div class="kafka-strip">
+    <div class="kafka-label">Kafka topic: order-events</div>
+    <div class="event-stream" id="stream"><span class="empty-stream">발행된 이벤트 없음</span></div>
+  </div>
+
+  <div class="arrow">↓ 각 서비스가 구독해서 처리</div>
+
+  <div class="ms-grid">
+    <div class="ms-box" id="ms-0"><div class="ms-name"><span class="dot"></span>카드 검증</div><div class="ms-task" id="task-0">구독 대기</div></div>
+    <div class="ms-box" id="ms-1"><div class="ms-name"><span class="dot"></span>잔액 확인</div><div class="ms-task" id="task-1">구독 대기</div></div>
+    <div class="ms-box" id="ms-2"><div class="ms-name"><span class="dot"></span>결제 승인</div><div class="ms-task" id="task-2">구독 대기</div></div>
+    <div class="ms-box" id="ms-3"><div class="ms-name"><span class="dot"></span>주문 확정</div><div class="ms-task" id="task-3">구독 대기</div></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-label">고객 체감 대기</div><div class="stat-value success" id="perceived">0.0s</div></div>
+    <div class="stat"><div class="stat-label">백엔드 처리 시간</div><div class="stat-value" id="backend">0.0s</div></div>
+    <div class="stat"><div class="stat-label">그동안 한 쇼핑</div><div class="stat-value" id="shop-count">0회</div></div>
+  </div>
+
+  <div class="notif" id="notif">결제 완료 알림이 도착했어요 — 영수증을 확인해 주세요</div>
+
+  <div class="controls">
+    <button onclick="reset()">초기화</button>
+  </div>
+
+  <div class="note">
+    <strong>관찰 포인트</strong>: 고객 체감 대기는 0.1초이지만 백엔드는 동일하게 5.5초가 걸립니다. 그 사이 고객은 자유롭게 다른 활동(쇼핑)을 할 수 있고, Kafka 토픽엔 이벤트가 차곡차곡 쌓입니다. 한 서비스가 죽어도 메시지는 토픽에 남아있다가 복구 후 처리됩니다.
+  </div>
+</div>
+
+<script>
+const items = ['게이밍 노트북', '기계식 키보드', '4K 모니터', '에어로 의자', '높이조절 책상', '버티컬 마우스', 'USB-C 허브', '웹캠'];
+const services = [
+  { tasks: ['카드 번호 확인', '유효기간 검증', '검증 완료'], duration: 1200, eventOut: 'CardValidated' },
+  { tasks: ['은행 API 호출', '잔액 조회', '잔액 충분'], duration: 1500, eventOut: 'BalanceConfirmed' },
+  { tasks: ['PG사 요청', '승인 대기', '승인 완료'], duration: 1800, eventOut: 'PaymentApproved' },
+  { tasks: ['주문 DB 기록', '영수증 생성', '주문 확정'], duration: 1000, eventOut: 'OrderCompleted' }
+];
+
+let running = false, backendStart = 0, backendTimer = null, shopCount = 0;
+
+function reset() {
+  running = false;
+  if (backendTimer) { clearInterval(backendTimer); backendTimer = null; }
+  shopCount = 0;
+  for (let i = 0; i < 4; i++) {
+    document.getElementById('ms-' + i).className = 'ms-box';
+    document.getElementById('task-' + i).textContent = '구독 대기';
+  }
+  document.getElementById('client').className = 'client';
+  document.getElementById('client-state').textContent = '결제 버튼을 눌러주세요';
+  const btn = document.getElementById('pay-btn');
+  btn.disabled = false;
+  btn.textContent = '결제하기 ₩45,000';
+  document.getElementById('shop-panel').classList.remove('active');
+  document.getElementById('shop-btn').disabled = true;
+  document.getElementById('shop-item').textContent = '결제 후 다른 활동을 할 수 있어요';
+  document.getElementById('stream').innerHTML = '<span class="empty-stream">발행된 이벤트 없음</span>';
+  document.getElementById('perceived').textContent = '0.0s';
+  document.getElementById('backend').textContent = '0.0s';
+  document.getElementById('shop-count').textContent = '0회';
+  document.getElementById('notif').style.display = 'none';
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function publishEvent(name) {
+  const stream = document.getElementById('stream');
+  const empty = stream.querySelector('.empty-stream');
+  if (empty) empty.remove();
+  const t = ((Date.now() - backendStart) / 1000).toFixed(1);
+  const pill = document.createElement('span');
+  pill.className = 'event-pill';
+  pill.textContent = name + ' @' + t + 's';
+  stream.appendChild(pill);
+}
+
+function shop() {
+  if (!running && document.getElementById('notif').style.display !== 'block') return;
+  shopCount++;
+  document.getElementById('shop-count').textContent = shopCount + '회';
+  const item = items[(shopCount - 1) % items.length];
+  document.getElementById('shop-item').textContent = '방금 본 상품: ' + item;
+}
+
+async function startPayment() {
+  if (running) return;
+  reset();
+  await sleep(50);
+  running = true;
+  backendStart = Date.now();
+  document.getElementById('pay-btn').disabled = true;
+  document.getElementById('pay-btn').textContent = '접수됨';
+
+  await sleep(120);
+  const client = document.getElementById('client');
+  client.classList.add('free');
+  document.getElementById('client-state').textContent = '주문 접수 완료 — 자유롭게 다른 일 하세요';
+  document.getElementById('perceived').textContent = '0.1s';
+  document.getElementById('shop-panel').classList.add('active');
+  document.getElementById('shop-btn').disabled = false;
+  publishEvent('OrderCreated');
+
+  backendTimer = setInterval(() => {
+    document.getElementById('backend').textContent = ((Date.now() - backendStart) / 1000).toFixed(1) + 's';
+  }, 50);
+
+  for (let i = 0; i < services.length; i++) {
+    if (!running) return;
+    const box = document.getElementById('ms-' + i);
+    const taskEl = document.getElementById('task-' + i);
+    box.className = 'ms-box active';
+    const svc = services[i];
+    const sub = svc.duration / svc.tasks.length;
+    for (let j = 0; j < svc.tasks.length; j++) {
+      taskEl.textContent = svc.tasks[j];
+      await sleep(sub);
+    }
+    box.className = 'ms-box done';
+    publishEvent(svc.eventOut);
+  }
+
+  clearInterval(backendTimer);
+  const total = ((Date.now() - backendStart) / 1000).toFixed(1);
+  document.getElementById('backend').textContent = total + 's';
+  document.getElementById('notif').style.display = 'block';
+  document.getElementById('pay-btn').textContent = '완료';
+  running = false;
+}
+</script>
+</body>
+</html>
