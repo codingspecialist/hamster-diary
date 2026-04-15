@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SSE 시뮬레이터</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;font-family:'Segoe UI',Tahoma,sans-serif;background:#0f172a;color:#e2e8f0;}
+
+.app{display:flex;flex-direction:column;height:100vh;}
+.header{background:#1e293b;border-bottom:1px solid #334155;padding:10px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.header h1{font-size:18px;color:#f8fafc;}
+.header p{font-size:11px;color:#94a3b8;}
+
+.main{flex:1;display:grid;grid-template-columns:240px 1fr 300px;min-height:0;}
+
+.ctrl{background:#1e293b;border-right:1px solid #334155;display:flex;flex-direction:column;min-height:0;overflow-y:auto;}
+.ctrl::-webkit-scrollbar{width:4px;} .ctrl::-webkit-scrollbar-thumb{background:#334155;border-radius:2px;}
+.sec-title{padding:8px 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #334155;flex-shrink:0;}
+
+.status-row{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid #334155;flex-shrink:0;}
+.dot{width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0;}
+.dot.on{background:#22c55e;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.status-text{font-size:12px;font-weight:600;}
+
+.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:8px;border-bottom:1px solid #334155;flex-shrink:0;}
+.st{background:#0f172a;padding:6px;border-radius:4px;text-align:center;}
+.st .v{font-size:16px;font-weight:700;color:#f8fafc;} .st .l{font-size:8px;color:#64748b;text-transform:uppercase;margin-top:1px;}
+
+.btns{padding:8px;display:flex;flex-direction:column;gap:4px;flex-shrink:0;}
+.btns button{padding:8px;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;}
+.b-go{background:#22c55e;color:#052e16;} .b-go:hover{background:#16a34a;}
+.b-stop{background:#ef4444;color:#fff;} .b-stop:hover{background:#dc2626;}
+.b-add{background:#3b82f6;color:#fff;} .b-add:hover{background:#2563eb;}
+.b-503{background:#f97316;color:#fff;} .b-503:hover{background:#ea580c;}
+.b-cast{background:#a855f7;color:#fff;} .b-cast:hover{background:#9333ea;}
+.b-off{background:#334155!important;color:#64748b!important;cursor:not-allowed!important;}
+
+.client-list{flex:1;overflow-y:auto;padding:6px;min-height:0;}
+.cc{background:#0f172a;border:1px solid #334155;border-radius:6px;padding:8px;margin-bottom:4px;font-size:11px;}
+.cc.ok{border-color:#22c55e;} .cc.err{border-color:#ef4444;}
+.cc .nm{font-weight:700;} .cc .sid{color:#64748b;font-family:monospace;font-size:9px;}
+.cc .st-line{margin-top:4px;font-size:10px;}
+.tbar{height:3px;background:#334155;border-radius:2px;margin-top:4px;overflow:hidden;}
+.tfill{height:100%;background:#22c55e;transition:width 1s linear;} .tfill.w{background:#eab308;} .tfill.d{background:#ef4444;}
+.cc button{background:#ef4444;color:#fff;border:none;border-radius:3px;padding:2px 6px;font-size:9px;cursor:pointer;float:right;}
+
+.viz{background:#0f172a;display:flex;flex-direction:column;min-height:0;position:relative;}
+.viz-title{padding:8px 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #334155;flex-shrink:0;}
+.canvas-wrap{flex:1;position:relative;min-height:0;}
+.canvas-wrap svg{width:100%;height:100%;display:block;}
+
+.msg-bar{display:flex;gap:6px;padding:8px 12px;border-top:1px solid #334155;flex-shrink:0;}
+.msg-bar input{flex:1;background:#1e293b;border:1px solid #334155;border-radius:5px;padding:7px 10px;color:#f8fafc;font-size:12px;outline:none;}
+.msg-bar input:focus{border-color:#3b82f6;}
+.msg-bar button{padding:7px 14px;background:#3b82f6;color:#fff;border:none;border-radius:5px;font-weight:700;font-size:12px;cursor:pointer;}
+
+.logs{background:#1e293b;border-left:1px solid #334155;display:flex;flex-direction:column;min-height:0;}
+.log-body{flex:1;overflow-y:auto;padding:6px;font-family:'Consolas',monospace;font-size:10.5px;line-height:1.5;min-height:0;}
+.log-body::-webkit-scrollbar{width:4px;} .log-body::-webkit-scrollbar-thumb{background:#334155;border-radius:2px;}
+.le{padding:3px 6px;border-radius:3px;margin-bottom:1px;word-break:break-all;}
+.le.info{color:#94a3b8;} .le.ok{color:#86efac;background:rgba(34,197,94,.06);}
+.le.dc{color:#fca5a5;background:rgba(239,68,68,.06);}
+.le.ev{color:#93c5fd;background:rgba(59,130,246,.06);}
+.le.dm{color:#fde68a;background:rgba(250,204,21,.1);border-left:2px solid #eab308;}
+.le.cr{color:#fca5a5;background:rgba(239,68,68,.15);border-left:2px solid #ef4444;font-weight:600;}
+.le.csr{color:#a5f3fc;background:rgba(6,182,212,.1);border-left:2px solid #06b6d4;}
+.le .t{color:#475569;margin-right:4px;}
+.log-bar{display:flex;gap:4px;padding:6px 8px;border-top:1px solid #334155;flex-shrink:0;}
+.log-bar button{flex:1;padding:4px;background:#334155;color:#94a3b8;border:none;border-radius:3px;font-size:10px;cursor:pointer;}
+
+.banner{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;pointer-events:none;text-align:center;opacity:0;transition:opacity .3s;}
+.banner.show{opacity:1;}
+.banner .box{background:rgba(15,23,42,.96);border:2px solid #334155;border-radius:14px;padding:18px 32px;backdrop-filter:blur(6px);min-width:320px;}
+.banner .sn{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#64748b;}
+.banner .st2{font-size:18px;font-weight:700;color:#f8fafc;margin-top:2px;}
+.banner .sd{font-size:12px;color:#94a3b8;margin-top:6px;line-height:1.5;}
+.banner .sc{display:inline-block;background:#1e293b;border:1px solid #334155;border-radius:5px;padding:6px 14px;margin-top:8px;font-family:monospace;font-size:11px;color:#86efac;text-align:left;white-space:pre;}
+.banner.dum .box{border-color:#eab308;box-shadow:0 0 24px rgba(234,179,8,.15);} .banner.dum .st2{color:#fde68a;}
+.banner.err .box{border-color:#ef4444;box-shadow:0 0 24px rgba(239,68,68,.2);} .banner.err .st2{color:#fca5a5;}
+.banner.csr-b .box{border-color:#06b6d4;box-shadow:0 0 24px rgba(6,182,212,.15);} .banner.csr-b .st2{color:#a5f3fc;}
+
+.err-flash{position:absolute;inset:0;background:rgba(127,29,29,.12);z-index:5;display:none;animation:ef .3s;}
+@keyframes ef{0%{opacity:0}50%{opacity:1}100%{opacity:.5}}
+
+.empty{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#475569;}
+.empty .icon{font-size:40px;margin-bottom:8px;} .empty .t1{font-size:15px;font-weight:600;} .empty .t2{font-size:12px;margin-top:2px;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div><h1>SSE (Server-Sent Events) 시뮬레이터</h1><p>단방향 실시간 Push — Response 스트림을 유지하여 서버 → 클라이언트로 이벤트 전송</p></div>
+    <div style="font-size:10px;color:#475569;">⚠ SseEmitter 생성 직후 <strong style="color:#fde68a;">반드시 dummy-data 1회 전송</strong> 필요 (503 방지)</div>
+  </div>
+  <div class="main">
+    <div class="ctrl">
+      <div class="sec-title">서버 제어</div>
+      <div class="status-row"><div id="dot" class="dot"></div><span id="stxt" class="status-text" style="color:#fca5a5;">서버 중지됨</span></div>
+      <div class="stats">
+        <div class="st"><div id="sC" class="v">0</div><div class="l">클라이언트</div></div>
+        <div class="st"><div id="sM" class="v">0</div><div class="l">메시지</div></div>
+        <div class="st"><div id="sT" class="v">0s</div><div class="l">가동시간</div></div>
+      </div>
+      <div class="btns">
+        <button id="bGo" class="b-go" onclick="startServer()">서버 시작</button>
+        <button id="bSt" class="b-stop b-off" onclick="stopServer()" disabled>서버 중지</button>
+        <div style="border-top:1px solid #475569;margin:2px 0;"></div>
+        <button id="bAdd" class="b-add b-off" onclick="addClient(true)" disabled>클라이언트 추가 (dummy O)</button>
+        <button id="b503" class="b-503 b-off" onclick="addClient(false)" disabled>클라이언트 추가 (dummy X) — 503!</button>
+        <div style="border-top:1px solid #475569;margin:2px 0;"></div>
+        <button id="bCast" class="b-cast b-off" onclick="broadcastMessage()" disabled>전체 브로드캐스트</button>
+      </div>
+      <div class="sec-title">연결된 클라이언트</div>
+      <div id="cList" class="client-list"></div>
+    </div>
+
+    <div class="viz">
+      <div class="viz-title">네트워크 시각화 — SSE 연결 흐름</div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <div id="errFlash" class="err-flash"></div>
+        <svg id="svg">
+          <defs>
+            <marker id="ag" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#22c55e" opacity=".5"/></marker>
+            <filter id="gl"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="gls"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <g id="sNode" style="display:none;">
+            <rect x="-52" y="-36" width="104" height="72" rx="10" fill="#1e293b" stroke="#334155" stroke-width="2"/>
+            <text x="0" y="-10" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="bold">Spring Boot</text>
+            <text x="0" y="5" text-anchor="middle" fill="#94a3b8" font-size="9">SseEmitters</text>
+            <text x="0" y="18" text-anchor="middle" fill="#64748b" font-size="8">(ConcurrentHashMap)</text>
+            <text x="0" y="30" text-anchor="middle" fill="#64748b" font-size="8">:8080</text>
+          </g>
+        </svg>
+        <div id="banner" class="banner"><div class="box"><div id="bn" class="sn"></div><div id="bt" class="st2"></div><div id="bd" class="sd"></div><div id="bc" class="sc" style="display:none;"></div></div></div>
+        <div id="empty" class="empty"><div class="icon">📡</div><div class="t1">서버를 시작해주세요</div><div class="t2">SSE 연결 시뮬레이션을 시작합니다</div></div>
+      </div>
+      <div class="msg-bar">
+        <input id="msgIn" placeholder="메시지 입력 (POST /chat)" disabled onkeydown="if(event.key==='Enter')sendMessage()">
+        <button id="bSend" class="b-off" onclick="sendMessage()" disabled>전송</button>
+      </div>
+    </div>
+
+    <div class="logs">
+      <div class="sec-title">이벤트 로그</div>
+      <div id="logBox" class="log-body"></div>
+      <div class="log-bar"><button onclick="document.getElementById('logBox').innerHTML=''">로그 지우기</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let running=false,startT=null,clients=[],cCnt=0,mCnt=0,uptimeId=null,timers=[];
+const TIMEOUT=60000,COLORS=['#3b82f6','#22c55e','#eab308','#ef4444','#a855f7','#ec4899','#06b6d4','#f97316'];
+const $=id=>document.getElementById(id);
+
+function now(){const d=new Date();return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;}
+function log(m,c='info'){const e=document.createElement('div');e.className='le '+c;e.innerHTML=`<span class="t">[${now()}]</span>${m}`;$('logBox').appendChild(e);$('logBox').scrollTop=$('logBox').scrollHeight;}
+function showB(n,t,d,c,cls=''){$('banner').className='banner show '+cls;$('bn').textContent=n;$('bt').textContent=t;$('bd').innerHTML=d;if(c){$('bc').textContent=c;$('bc').style.display='inline-block';}else $('bc').style.display='none';}
+function hideB(){$('banner').className='banner';}
+function stats(){const cn=clients.filter(c=>c.on).length;$('sC').textContent=cn;$('sM').textContent=mCnt;if(!startT){$('sT').textContent='0s';return;}const s=Math.floor((Date.now()-startT)/1000),m=Math.floor(s/60);$('sT').textContent=m>0?m+'m '+(s%60)+'s':s+'s';}
+function setBtn(id,on){const b=$(id);if(on){b.classList.remove('b-off');b.disabled=false;}else{b.classList.add('b-off');b.disabled=true;}}
+
+// ===== SERVER =====
+function startServer(){
+  running=true;startT=Date.now();
+  $('dot').classList.add('on');$('stxt').textContent='서버 가동 중';$('stxt').style.color='#86efac';
+  setBtn('bGo',false);setBtn('bSt',true);setBtn('bAdd',true);setBtn('b503',true);
+  $('empty').style.display='none';
+  const h=$('svg').getBoundingClientRect().height;
+  $('sNode').setAttribute('transform',`translate(120,${h/2})`);$('sNode').style.display='';
+  log('Spring Boot 서버 시작 — SseEmitters 초기화','ok');
+  uptimeId=setInterval(stats,1000);stats();
+  showB('서버 시작','Spring Boot 가동','GET /connect (text/event-stream) 준비 완료',null);setTimeout(hideB,1800);
+}
+function stopServer(){
+  running=false;clearInterval(uptimeId);timers.forEach(t=>clearInterval(t));timers=[];
+  clients.forEach(c=>{if(c.on){c.on=false;}});clients=[];cCnt=0;
+  $('dot').classList.remove('on');$('stxt').textContent='서버 중지됨';$('stxt').style.color='#fca5a5';
+  setBtn('bGo',true);setBtn('bSt',false);setBtn('bAdd',false);setBtn('b503',false);setBtn('bCast',false);
+  $('msgIn').disabled=true;setBtn('bSend',false);
+  $('sNode').style.display='none';$('empty').style.display='';$('errFlash').style.display='none';
+  log('서버 중지','dc');hideB();stats();renderList();renderNet();
+}
+
+// ===== CLIENT =====
+function addClient(dummy){
+  if(!running)return;cCnt++;
+  const sid='sess_'+Math.random().toString(36).substr(2,6);
+  const cl={id:'Client-'+cCnt,sid,on:false,dummy,color:COLORS[(cCnt-1)%COLORS.length],elapsed:0,timerId:null};
+  clients.push(cl);
+
+  showB('STEP 1/4','GET /connect 요청','브라우저가 EventSource로 SSE 연결 요청','const sse = new EventSource("/connect");');
+  log(`━━ ${cl.id} 연결 시작 ${dummy?'':'(⚠ dummy 없이!)'} ━━`,dummy?'ok':'cr');
+  log(`${cl.id} → new EventSource("/connect")`,'info');
+
+  setTimeout(()=>{
+    if(!running)return;
+    showB('STEP 2/4','SseEmitter 생성','서버가 SseEmitter(60초)를 생성 → ConcurrentHashMap 저장',`new SseEmitter(60*1000L)\nsseEmitters.add("${sid}", emitter)`);
+    log(`서버: new SseEmitter(60000L)`,'info');
+    log(`서버: sseEmitters.add("${sid}", emitter)`,'ok');
+    cl.on=true;stats();renderList();renderNet();
+
+    setTimeout(()=>{
+      if(!running||!cl.on)return;
+      if(dummy){
+        showB('STEP 3/4','⚡ dummy-data 즉시 전송!','SseEmitter 생성 직후 반드시 1회 전송!\n미전송 시 → 503 Service Unavailable',`emitter.send(SseEmitter.event()\n  .name("connect")\n  .data("dummy-data"));`,'dum');
+        log('⚡ 서버 → '+cl.id+': dummy-data 즉시 전송!','dm');
+        log('  이 전송이 없으면 503 에러 발생!','dm');
+
+        animatePacket(cl,'⚡ dummy-data','#eab308',true,()=>{
+          showB('STEP 4/4','클라이언트: CSR 처리','addEventListener("connect") 콜백 실행\ndummy-data 수신 확인 → 연결 완료',`sse.addEventListener('connect', (e) => {\n  console.log(e.data); // "dummy-data"\n});`,'csr-b');
+          log(`${cl.id}: CSR → addEventListener('connect') 콜백 실행`,'csr');
+          log(`${cl.id}: ✅ "dummy-data" 수신 확인 → 연결 완료!`,'csr');
+          setBtn('bCast',true);$('msgIn').disabled=false;setBtn('bSend',true);
+          setTimeout(hideB,2200);
+          startTimer(cl);
+        });
+      } else {
+        showB('STEP 3/4','⚠ dummy-data 전송 생략!','아무 데이터도 보내지 않음...',`// emitter.send() 호출 안 함!`,'err');
+        log('⚠ 서버: dummy-data 전송하지 않음!','cr');
+        setTimeout(()=>{
+          if(!running)return;
+          showB('503 ERROR','🚨 503 Service Unavailable','dummy-data 미전송 → 재연결 시 503!\n\n해결: 생성 직후 dummy-data 즉시 전송',`emitter.send(SseEmitter.event()\n  .name("connect").data("dummy-data"));`,'err');
+          $('errFlash').style.display='block';setTimeout(()=>$('errFlash').style.display='none',2500);
+          log('🚨 '+cl.id+': 503 Service Unavailable!','cr');
+          log('💡 해결: emitter.send(event().name("connect").data("dummy-data"))','dm');
+          cl.on=false;stats();renderList();renderNet();
+          setTimeout(hideB,5000);
+        },2200);
+      }
+    },1000);
+  },700);
+}
+
+function startTimer(cl){
+  cl.elapsed=0;
+  const tid=setInterval(()=>{
+    if(!cl.on){clearInterval(tid);return;}
+    cl.elapsed+=1000;renderList();
+    if(cl.elapsed>=TIMEOUT){
+      clearInterval(tid);
+      log(`${cl.id} — onTimeout(60초) → complete()`,'dc');
+      cl.on=false;stats();renderList();renderNet();
+      showB('타임아웃','⏱ 60초 타임아웃','onTimeout → complete() → onCompletion\n브라우저 자동 재연결',null);
+      setTimeout(()=>{
+        if(!running)return;hideB();
+        cl.on=true;cl.elapsed=0;
+        log(`${cl.id} — 브라우저 자동 재연결`,'info');
+        log(`서버: 재연결 → new SseEmitter + add()`,'ok');
+        log(`⚡ 서버 → ${cl.id}: dummy-data 재전송 (재연결에도 필수!)`,'dm');
+        stats();renderList();renderNet();
+        animatePacket(cl,'⚡ dummy-data','#eab308',true,()=>{
+          log(`${cl.id}: CSR → "dummy-data" 수신 확인`,'csr');
+        });
+        startTimer(cl);
+      },2000);
+    }
+  },1000);
+  cl.timerId=tid;timers.push(tid);
+}
+
+function disconnectClient(id){
+  const cl=clients.find(c=>c.id===id);if(!cl||!cl.on)return;
+  cl.on=false;if(cl.timerId)clearInterval(cl.timerId);
+  log(`${cl.id} — EventSource.close()`,'dc');
+  stats();renderList();renderNet();
+  if(!clients.some(c=>c.on)){setBtn('bCast',false);$('msgIn').disabled=true;setBtn('bSend',false);}
+}
+
+// ===== MESSAGING =====
+function sendMessage(){
+  const inp=$('msgIn'),msg=inp.value.trim();if(!msg||!running)return;inp.value='';
+  mCnt++;const cid=mCnt,obj={id:cid,msg};
+  log(`━━ 메시지: "${msg}" ━━`,'ev');
+  log(`클라이언트 → POST /chat {msg:"${msg}"}`,'info');
+
+  setTimeout(()=>{
+    log(`서버: chatService.save() → Chat{id:${cid}}`,'info');
+    log(`서버: sseEmitters.sendAll(chat) — 모든 emitter에 push!`,'ev');
+    showB('SSE PUSH','서버 → 클라이언트 Push','기존 Response 스트림으로 전송\n새 HTTP 요청 없이 서버가 push!',`emitter.send(SseEmitter.event()\n  .name("chat").data(chat));`);
+
+    const connected=clients.filter(c=>c.on);
+    connected.forEach((cl,i)=>{
+      setTimeout(()=>{
+        // ★ 타임아웃 완전 초기화 (0으로 리셋)
+        cl.elapsed=0;
+        renderList();
+
+        log(`서버 → ${cl.id}: event:chat, data:${JSON.stringify(obj)}`,'ev');
+        animatePacket(cl,msg,'#a855f7',false,()=>{
+          log(`${cl.id}: CSR → addEventListener('chat') 콜백`,'csr');
+          log(`${cl.id}: CSR → JSON.parse → changeDom("${msg}")`,'csr');
+          log(`${cl.id}: DOM에 <li>${msg}</li> prepend 완료`,'csr');
+
+          showB('CSR 렌더링',`${cl.id}: DOM 업데이트`,`addEventListener('chat') 콜백 실행\nJSON.parse(data) → changeDom()\n화면에 새 메시지를 동적으로 추가`,`sse.addEventListener('chat', e => {\n  let chat = JSON.parse(e.data);\n  changeDom(chat.msg);\n  // → <li>${msg}</li> prepend\n});`,'csr-b');
+          setTimeout(hideB,2200);
+        });
+      },i*250);
+    });
+    stats();
+  },350);
+}
+
+function broadcastMessage(){
+  const m=['안녕하세요!','새로운 알림','서버 상태: 정상','실시간 업데이트!','이벤트 발생!'];
+  $('msgIn').value=m[Math.floor(Math.random()*m.length)];sendMessage();
+}
+
+// ===== RENDER =====
+function renderList(){
+  const el=$('cList');el.innerHTML='';
+  clients.forEach(cl=>{
+    const pct=cl.on?Math.min(100,cl.elapsed/TIMEOUT*100):0;
+    const bc=pct>80?'d':pct>50?'w':'';
+    const rem=cl.on?Math.max(0,Math.ceil((TIMEOUT-cl.elapsed)/1000)):0;
+    const isErr=!cl.on&&!cl.dummy;
+    const d=document.createElement('div');d.className='cc '+(cl.on?'ok':isErr?'err':'');
+    d.innerHTML=`<span class="nm" style="color:${cl.color}">${cl.id}</span>${!cl.dummy?' <span style="color:#f97316;font-size:9px;">(no dummy)</span>':''}${cl.on?`<button onclick="disconnectClient('${cl.id}')">끊기</button>`:''}<div class="sid">${cl.sid}</div><div class="st-line" style="color:${cl.on?'#22c55e':isErr?'#ef4444':'#64748b'}">${cl.on?'● 연결됨 — '+rem+'초 남음':isErr?'✖ 503 에러':'○ 해제됨'}</div>${cl.on?`<div class="tbar"><div class="tfill ${bc}" style="width:${pct}%"></div></div>`:''}`;
+    el.appendChild(d);
+  });
+}
+
+function renderNet(){
+  const svg=$('svg'),r=svg.getBoundingClientRect(),w=r.width,h=r.height,sx=120,sy=h/2;
+  $('sNode').setAttribute('transform',`translate(${sx},${sy})`);
+  svg.querySelectorAll('.cn,.cl').forEach(e=>e.remove());
+  if(!clients.length)return;
+
+  clients.forEach((cl,i)=>{
+    const cx=w-100,sp=Math.min(70,(h-40)/Math.max(clients.length,1)),stY=sy-((clients.length-1)*sp)/2,cy=stY+i*sp;
+    const isErr=!cl.on&&!cl.dummy;
+
+    if(cl.on||isErr){
+      const ln=document.createElementNS('http://www.w3.org/2000/svg','line');
+      ln.setAttribute('class','cl');ln.setAttribute('x1',sx+52);ln.setAttribute('y1',sy);ln.setAttribute('x2',cx-45);ln.setAttribute('y2',cy);
+      ln.setAttribute('stroke',isErr?'#ef4444':cl.color);ln.setAttribute('stroke-opacity',isErr?'.15':'.3');
+      ln.setAttribute('stroke-width','2');ln.setAttribute('stroke-dasharray',isErr?'4,8':'6,4');
+      if(cl.on)ln.setAttribute('marker-end','url(#ag)');
+      svg.insertBefore(ln,$('sNode'));
+      const lb=document.createElementNS('http://www.w3.org/2000/svg','text');lb.setAttribute('class','cl');
+      lb.setAttribute('x',(sx+52+cx-45)/2);lb.setAttribute('y',(sy+cy)/2-7);
+      lb.setAttribute('text-anchor','middle');lb.setAttribute('font-size','8');
+      lb.setAttribute('fill',isErr?'#ef4444':'#475569');lb.setAttribute('font-weight',isErr?'bold':'normal');
+      lb.textContent=isErr?'✖ 503 — dummy 미전송!':'Response 스트림 유지 (단방향) →';
+      svg.insertBefore(lb,$('sNode'));
+    }
+
+    const g=document.createElementNS('http://www.w3.org/2000/svg','g');g.setAttribute('class','cn');g.setAttribute('transform',`translate(${cx},${cy})`);
+    const nr=document.createElementNS('http://www.w3.org/2000/svg','rect');
+    nr.setAttribute('x','-45');nr.setAttribute('y','-22');nr.setAttribute('width','90');nr.setAttribute('height','44');nr.setAttribute('rx','7');
+    nr.setAttribute('fill',isErr?'#1c1917':cl.on?'#0f172a':'#1e293b');
+    nr.setAttribute('stroke',isErr?'#ef4444':cl.on?cl.color:'#334155');
+    nr.setAttribute('stroke-width',isErr||cl.on?'2':'1');
+    if(cl.on)nr.setAttribute('filter','url(#gl)');g.appendChild(nr);
+    const nt=document.createElementNS('http://www.w3.org/2000/svg','text');nt.setAttribute('y','-4');nt.setAttribute('text-anchor','middle');
+    nt.setAttribute('fill',isErr?'#fca5a5':cl.on?cl.color:'#64748b');nt.setAttribute('font-size','11');nt.setAttribute('font-weight','bold');
+    nt.textContent=cl.id;g.appendChild(nt);
+    const st=document.createElementNS('http://www.w3.org/2000/svg','text');st.setAttribute('y','10');st.setAttribute('text-anchor','middle');st.setAttribute('font-size','8');
+    st.setAttribute('fill',isErr?'#ef4444':cl.on?'#22c55e':'#64748b');
+    st.textContent=isErr?'503 Error!':cl.on?'EventSource 연결됨':'연결 해제';g.appendChild(st);
+    svg.appendChild(g);cl._p={x:cx,y:cy};
+  });
+}
+
+function animatePacket(cl,msg,color,isDummy,onDone){
+  if(!cl._p||!cl.on){if(onDone)onDone();return;}
+  const svg=$('svg'),r=svg.getBoundingClientRect(),sx=120+52,sy=r.height/2,cx=cl._p.x-45,cy=cl._p.y;
+  const g=document.createElementNS('http://www.w3.org/2000/svg','g'),rad=isDummy?9:6;
+
+  if(isDummy){
+    const oc=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    oc.setAttribute('r','15');oc.setAttribute('fill','none');oc.setAttribute('stroke',color);
+    oc.setAttribute('stroke-width','2');oc.setAttribute('opacity','.5');oc.setAttribute('filter','url(#gls)');g.appendChild(oc);
+  }
+  const ci=document.createElementNS('http://www.w3.org/2000/svg','circle');
+  ci.setAttribute('r',String(rad));ci.setAttribute('fill',color);ci.setAttribute('filter',isDummy?'url(#gls)':'url(#gl)');g.appendChild(ci);
+  const lb=document.createElementNS('http://www.w3.org/2000/svg','text');lb.setAttribute('y',isDummy?'-20':'-12');lb.setAttribute('text-anchor','middle');
+  lb.setAttribute('fill',color);lb.setAttribute('font-size',isDummy?'11':'10');lb.setAttribute('font-weight','bold');
+  lb.textContent=msg.length>16?msg.substring(0,16)+'…':msg;g.appendChild(lb);
+  if(isDummy){
+    const sl=document.createElementNS('http://www.w3.org/2000/svg','text');sl.setAttribute('y',String(rad+14));sl.setAttribute('text-anchor','middle');
+    sl.setAttribute('fill','#fde68a');sl.setAttribute('font-size','8');sl.textContent='503 방지 필수 전송!';g.appendChild(sl);
+  }
+  svg.appendChild(g);
+  const dur=isDummy?1000:700,st=performance.now();
+  function step(t){
+    const p=Math.min(1,(t-st)/dur),e=p<.5?2*p*p:-1+(4-2*p)*p;
+    g.setAttribute('transform',`translate(${sx+(cx-sx)*e},${sy+(cy-sy)*e})`);
+    if(isDummy&&g.firstChild)g.firstChild.setAttribute('r',String(15+Math.sin(p*Math.PI*3)*3));
+    if(p<1)requestAnimationFrame(step);
+    else{ci.setAttribute('r',String(isDummy?16:10));ci.setAttribute('opacity','.5');setTimeout(()=>{g.remove();if(onDone)onDone();},isDummy?400:250);}
+  }
+  requestAnimationFrame(step);
+}
+
+window.addEventListener('resize',()=>{if(running)renderNet();});
+</script>
+</body>
+</html>
