@@ -7,9 +7,55 @@
     "Marketing",
     "마케팅",
     "Kafka",
-    "MSA"
+    "MSA",
+    "Web"
   ],
   "posts": [
+    {
+      "id": "sse-simulator",
+      "title": "SSE (Server-Sent Events) 시뮬레이터",
+      "date": "2026-04-15",
+      "category": "Web",
+      "summary": "서버에서 클라이언트로 단방향 실시간 스트리밍을 수행하는 SSE 방식을 인터랙티브하게 체험하는 시뮬레이터.",
+      "filename": "posts/sse-simulator.html",
+      "tags": [
+        "SSE",
+        "Server-Sent Events",
+        "실시간",
+        "HTTP",
+        "스트리밍"
+      ]
+    },
+    {
+      "id": "ajax-polling-simulator",
+      "title": "AJAX Polling 채팅 시뮬레이터",
+      "date": "2026-04-15",
+      "category": "Web",
+      "summary": "주기적으로 서버에 요청을 보내 변경사항을 확인하는 AJAX Polling 방식을 채팅 시나리오로 시각화한 시뮬레이터.",
+      "filename": "posts/ajax-polling-simulator.html",
+      "tags": [
+        "AJAX",
+        "Polling",
+        "채팅",
+        "HTTP",
+        "실시간"
+      ]
+    },
+    {
+      "id": "multipart-vs-base64-simulator",
+      "title": "Multipart Form-Data vs JSON + Base64 시뮬레이터",
+      "date": "2026-04-15",
+      "category": "Web",
+      "summary": "파일 업로드 시 Multipart Form-Data와 JSON+Base64 인코딩 방식의 차이를 비교하며 페이로드 크기와 처리 방식을 체험하는 시뮬레이터.",
+      "filename": "posts/multipart-vs-base64-simulator.html",
+      "tags": [
+        "Multipart",
+        "Base64",
+        "파일업로드",
+        "HTTP",
+        "JSON"
+      ]
+    },
     {
       "id": "msa-saga-orchestration",
       "title": "Saga 오케스트레이션 패턴 - 대출 심사",

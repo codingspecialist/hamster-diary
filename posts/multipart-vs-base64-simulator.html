@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multipart Form-Data vs JSON+Base64 시뮬레이터</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:20px}
+        h1{text-align:center;font-size:1.45rem;margin-bottom:4px;color:#f1f5f9}
+        .subtitle{text-align:center;color:#94a3b8;font-size:0.84rem;margin-bottom:22px}
+
+        /* 탭 */
+        .tabs{display:flex;justify-content:center;gap:0;margin-bottom:20px}
+        .tab{padding:10px 28px;font-size:0.85rem;font-weight:600;cursor:pointer;border:1px solid #334155;background:#1e293b;color:#94a3b8;transition:all .2s}
+        .tab:first-child{border-radius:8px 0 0 8px}
+        .tab:last-child{border-radius:0 8px 8px 0}
+        .tab.active-mp{background:#3b82f6;color:#fff;border-color:#3b82f6}
+        .tab.active-json{background:#8b5cf6;color:#fff;border-color:#8b5cf6}
+
+        /* 메인 그리드 */
+        .main{max-width:1300px;margin:0 auto;display:grid;grid-template-columns:320px 1fr 320px;gap:18px;align-items:start}
+        @media(max-width:1000px){.main{grid-template-columns:1fr}}
+
+        /* 패널 */
+        .panel{background:#1e293b;border-radius:12px;border:1px solid #334155;overflow:hidden}
+        .panel-hd{background:#334155;padding:10px 14px;font-weight:600;font-size:0.82rem;display:flex;align-items:center;gap:8px}
+
+        /* 입력 폼 */
+        .form-area{padding:14px}
+        .field{margin-bottom:10px}
+        .field label{display:block;font-size:0.75rem;color:#94a3b8;margin-bottom:3px}
+        .field input,.field textarea,.field select{
+            width:100%;background:#0f172a;border:1px solid #475569;border-radius:6px;
+            padding:7px 10px;color:#e2e8f0;font-size:0.82rem;outline:none;font-family:inherit
+        }
+        .field input:focus,.field textarea:focus{border-color:#3b82f6}
+        .field textarea{resize:vertical;min-height:50px}
+        .file-drop{
+            border:2px dashed #475569;border-radius:8px;padding:18px;text-align:center;
+            color:#64748b;font-size:0.78rem;cursor:pointer;transition:all .2s
+        }
+        .file-drop:hover,.file-drop.drag{border-color:#3b82f6;color:#94a3b8}
+        .file-drop input{display:none}
+        .file-info{margin-top:6px;font-size:0.72rem;color:#22c55e}
+        .btn-send{
+            width:100%;padding:10px;border:none;border-radius:8px;font-size:0.85rem;
+            font-weight:600;cursor:pointer;color:#fff;margin-top:6px;transition:background .2s
+        }
+        .btn-mp{background:#3b82f6}.btn-mp:hover{background:#2563eb}
+        .btn-json{background:#8b5cf6}.btn-json:hover{background:#7c3aed}
+
+        /* 가운데: 전송 시뮬레이션 */
+        .sim-area{padding:14px;min-height:600px}
+
+        /* HTTP 요청 뷰 */
+        .http-block{
+            background:#0f172a;border:1px solid #334155;border-radius:8px;
+            font-family:'Consolas','Fira Code',monospace;font-size:0.72rem;
+            line-height:1.6;overflow:hidden;margin-bottom:14px
+        }
+        .http-title{
+            padding:6px 10px;font-weight:700;font-size:0.72rem;
+            display:flex;align-items:center;gap:6px
+        }
+        .http-title.mp{background:rgba(59,130,246,0.15);color:#60a5fa}
+        .http-title.json{background:rgba(139,92,246,0.15);color:#a78bfa}
+        .http-body{padding:10px;max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#475569 transparent;white-space:pre-wrap;word-break:break-all}
+
+        /* 하이라이트 */
+        .hl-header{color:#f59e0b}
+        .hl-boundary{color:#f472b6;font-weight:700}
+        .hl-key{color:#22d3ee}
+        .hl-string{color:#4ade80}
+        .hl-base64{color:#fb923c}
+        .hl-comment{color:#64748b;font-style:italic}
+        .hl-binary{color:#f87171}
+
+        /* 비교 카드 */
+        .compare{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+        .cmp-card{background:#0f172a;border-radius:8px;padding:10px;border:1px solid #334155}
+        .cmp-card h4{font-size:0.76rem;margin-bottom:6px;display:flex;align-items:center;gap:5px}
+        .cmp-card .val{font-size:1.3rem;font-weight:700;margin-bottom:2px}
+        .cmp-card .desc{font-size:0.68rem;color:#94a3b8}
+        .val-mp{color:#60a5fa}
+        .val-json{color:#a78bfa}
+        .val-win{color:#4ade80}
+        .bar-wrap{height:8px;background:#334155;border-radius:4px;overflow:hidden;margin-top:6px}
+        .bar-fill{height:100%;border-radius:4px;transition:width .6s ease}
+        .bar-mp{background:#3b82f6}
+        .bar-json{background:#8b5cf6}
+
+        /* 서버 응답 */
+        .server-resp{padding:14px}
+        .resp-status{
+            display:inline-block;padding:4px 10px;border-radius:6px;font-size:0.78rem;
+            font-weight:700;margin-bottom:10px
+        }
+        .resp-ok{background:rgba(34,197,94,0.15);color:#4ade80}
+        .parsed-data{
+            background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;
+            font-size:0.75rem;font-family:'Consolas',monospace;line-height:1.5
+        }
+        .parsed-data .pk{color:#22d3ee}
+        .parsed-data .pv{color:#4ade80}
+
+        /* 설명 */
+        .explanation{max-width:1300px;margin:18px auto 0}
+        .explanation .panel-body{padding:14px 16px;font-size:0.8rem;line-height:1.65;color:#cbd5e1}
+        .explanation code{background:#334155;padding:1px 5px;border-radius:3px;font-size:0.76rem;color:#f59e0b}
+        .hl-box{border-left:3px solid;padding:8px 12px;margin:8px 0;border-radius:0 6px 6px 0}
+        .hl-box.blue{border-color:#3b82f6;background:rgba(59,130,246,0.06)}
+        .hl-box.purple{border-color:#8b5cf6;background:rgba(139,92,246,0.06)}
+        .pros{color:#4ade80}.cons{color:#f87171}
+
+        /* 애니메이션 */
+        @keyframes slideIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+        .animate-in{animation:slideIn .4s ease}
+
+        /* 전송 애니메이션 */
+        .send-anim{position:relative;overflow:hidden}
+        .packet{
+            position:absolute;width:12px;height:12px;border-radius:50%;top:50%;
+            transform:translateY(-50%);opacity:0
+        }
+        .packet.mp{background:#3b82f6}
+        .packet.json{background:#8b5cf6}
+        @keyframes fly{
+            0%{left:0;opacity:1}
+            100%{left:100%;opacity:0}
+        }
+    </style>
+</head>
+<body>
+
+<h1>Multipart Form-Data vs JSON + Base64</h1>
+<p class="subtitle">같은 데이터를 두 가지 방식으로 전송할 때, HTTP 요청이 어떻게 다른지 시뮬레이션합니다</p>
+
+<!-- 탭 -->
+<div class="tabs">
+    <div class="tab active-mp" id="tab-mp" onclick="setMode('mp')">📦 Multipart Form-Data</div>
+    <div class="tab" id="tab-json" onclick="setMode('json')">📋 JSON + Base64</div>
+    <div class="tab" id="tab-both" onclick="setMode('both')">⚡ 동시 비교</div>
+</div>
+
+<div class="main">
+    <!-- 왼쪽: 입력 폼 -->
+    <div class="panel">
+        <div class="panel-hd">📝 전송할 데이터 입력</div>
+        <div class="form-area">
+            <div class="field">
+                <label>제목 (title)</label>
+                <input type="text" id="f-title" value="프로젝트 발표자료" placeholder="제목 입력">
+            </div>
+            <div class="field">
+                <label>설명 (description)</label>
+                <textarea id="f-desc" placeholder="설명 입력">Spring Boot SSE 채팅 프로젝트 관련 자료입니다.</textarea>
+            </div>
+            <div class="field">
+                <label>카테고리 (category)</label>
+                <select id="f-cat">
+                    <option value="document">문서</option>
+                    <option value="image" selected>이미지</option>
+                    <option value="video">동영상</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>파일 첨부</label>
+                <div class="file-drop" id="file-drop" onclick="document.getElementById('file-input').click()" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+                    📎 클릭하거나 드래그하여 파일 선택
+                    <input type="file" id="file-input" onchange="handleFile(this.files[0])">
+                </div>
+                <div class="file-info" id="file-info"></div>
+            </div>
+            <div class="field">
+                <label>또는 데모 파일 사용:</label>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+                    <button class="demo-btn" onclick="useDemoFile('tiny')">🖼️ 작은 이미지 (2KB)</button>
+                    <button class="demo-btn" onclick="useDemoFile('medium')">📷 중간 이미지 (50KB)</button>
+                    <button class="demo-btn" onclick="useDemoFile('large')">📁 큰 파일 (500KB)</button>
+                </div>
+            </div>
+            <button class="btn-send btn-mp" id="btn-send" onclick="simulate()">🚀 전송 시뮬레이션 실행</button>
+        </div>
+    </div>
+    <style>.demo-btn{background:#334155;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:5px 10px;font-size:0.72rem;cursor:pointer}.demo-btn:hover{background:#475569}</style>
+
+    <!-- 가운데: 전송 시뮬레이션 뷰 -->
+    <div class="panel">
+        <div class="panel-hd" id="sim-title">📡 HTTP 요청 시뮬레이션</div>
+        <div class="sim-area" id="sim-area">
+            <div style="text-align:center;color:#64748b;padding:40px 0">
+                ← 왼쪽에서 데이터를 입력하고<br>"전송 시뮬레이션 실행"을 누르세요
+            </div>
+        </div>
+    </div>
+
+    <!-- 오른쪽: 서버 수신 결과 -->
+    <div class="panel">
+        <div class="panel-hd">🖥️ 서버 수신 (Controller)</div>
+        <div class="server-resp" id="server-resp">
+            <div style="text-align:center;color:#64748b;padding:40px 0">
+                시뮬레이션 실행 후<br>서버에서 파싱된 결과가 표시됩니다
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 설명 -->
+<div class="explanation panel">
+    <div class="panel-hd">📖 Multipart vs JSON+Base64 비교 정리</div>
+    <div class="panel-body">
+        <div class="hl-box blue">
+            <strong>📦 Multipart Form-Data</strong> — <code>Content-Type: multipart/form-data; boundary=----</code><br>
+            HTTP body를 <strong>boundary 문자열</strong>로 파트를 나눠서 각각의 필드와 파일을 <strong>원본 바이너리 그대로</strong> 전송합니다.
+            전통적인 <code>&lt;form enctype="multipart/form-data"&gt;</code> 방식이며, 파일 업로드의 표준입니다.
+        </div>
+        <div class="hl-box purple">
+            <strong>📋 JSON + Base64</strong> — <code>Content-Type: application/json</code><br>
+            모든 데이터를 하나의 JSON 객체에 담고, 파일은 <strong>Base64로 인코딩</strong>하여 문자열 필드로 포함시킵니다.
+            API 설계가 깔끔하고, 중첩 구조나 배열 등 복잡한 데이터를 표현하기 좋습니다.
+        </div>
+        <p style="margin:12px 0 6px;font-weight:600">핵심 차이점:</p>
+        <table style="width:100%;border-collapse:collapse;font-size:0.78rem;margin-bottom:10px">
+            <thead><tr style="background:#334155">
+                <th style="padding:6px 10px;text-align:left;color:#94a3b8">항목</th>
+                <th style="padding:6px 10px;text-align:center;color:#60a5fa">Multipart</th>
+                <th style="padding:6px 10px;text-align:center;color:#a78bfa">JSON+Base64</th>
+            </tr></thead>
+            <tbody>
+                <tr><td style="padding:5px 10px;border-bottom:1px solid #334155">전송 크기</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center" class="pros">원본 그대로 (작음)</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center" class="cons">~33% 증가</td></tr>
+                <tr><td style="padding:5px 10px;border-bottom:1px solid #334155">데이터 구조</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center" class="cons">평면적 (key-value)</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center" class="pros">중첩/배열 자유로움</td></tr>
+                <tr><td style="padding:5px 10px;border-bottom:1px solid #334155">서버 파싱</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center">@RequestPart / MultipartFile</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center">@RequestBody + Base64 디코딩</td></tr>
+                <tr><td style="padding:5px 10px;border-bottom:1px solid #334155">스트리밍</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center" class="pros">가능 (대용량 OK)</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center" class="cons">전체 메모리 로드</td></tr>
+                <tr><td style="padding:5px 10px;border-bottom:1px solid #334155">브라우저 기본지원</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center" class="pros">FormData API</td>
+                    <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:center">FileReader 필요</td></tr>
+                <tr><td style="padding:5px 10px">적합한 상황</td>
+                    <td style="padding:5px 10px;text-align:center">대용량 파일, 이미지 업로드</td>
+                    <td style="padding:5px 10px;text-align:center">소규모 파일, REST API 통일</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+// ========== 상태 ==========
+let mode = 'mp'; // 'mp' | 'json' | 'both'
+let fileData = null; // { name, size, type, bytes: Uint8Array }
+
+// ========== 탭 ==========
+function setMode(m) {
+    mode = m;
+    document.getElementById('tab-mp').className = 'tab' + (m === 'mp' ? ' active-mp' : '');
+    document.getElementById('tab-json').className = 'tab' + (m === 'json' ? ' active-json' : '');
+    document.getElementById('tab-both').className = 'tab' + (m === 'both' ? ' active-mp' : '');
+
+    const btn = document.getElementById('btn-send');
+    if (m === 'mp') { btn.className = 'btn-send btn-mp'; btn.textContent = '🚀 Multipart 전송 시뮬레이션'; }
+    else if (m === 'json') { btn.className = 'btn-send btn-json'; btn.textContent = '🚀 JSON+Base64 전송 시뮬레이션'; }
+    else { btn.className = 'btn-send btn-mp'; btn.textContent = '🚀 동시 비교 시뮬레이션'; }
+}
+
+// ========== 파일 처리 ==========
+function handleFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        const bytes = new Uint8Array(e.target.result);
+        fileData = { name: file.name, size: file.size, type: file.type || 'application/octet-stream', bytes };
+        document.getElementById('file-info').textContent = `✅ ${file.name} (${formatSize(file.size)}, ${file.type})`;
+    };
+    reader.readAsArrayBuffer(file);
+}
+function handleDrop(e) { e.preventDefault(); e.target.classList.remove('drag'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); }
+function handleDragOver(e) { e.preventDefault(); document.getElementById('file-drop').classList.add('drag'); }
+function handleDragLeave(e) { document.getElementById('file-drop').classList.remove('drag'); }
+
+function useDemoFile(size) {
+    let len;
+    if (size === 'tiny') len = 2 * 1024;
+    else if (size === 'medium') len = 50 * 1024;
+    else len = 500 * 1024;
+    const bytes = new Uint8Array(len);
+    // 가짜 PNG 헤더
+    const pngHeader = [0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A];
+    pngHeader.forEach((b,i) => bytes[i] = b);
+    for (let i = 8; i < len; i++) bytes[i] = Math.floor(Math.random() * 256);
+    const name = size === 'tiny' ? 'icon.png' : size === 'medium' ? 'photo.png' : 'design_asset.png';
+    fileData = { name, size: len, type: 'image/png', bytes };
+    document.getElementById('file-info').textContent = `✅ ${name} (${formatSize(len)}, image/png) [데모]`;
+}
+
+// ========== 시뮬레이션 실행 ==========
+function simulate() {
+    const title = document.getElementById('f-title').value || '제목없음';
+    const desc = document.getElementById('f-desc').value || '';
+    const cat = document.getElementById('f-cat').value;
+
+    if (!fileData) { alert('파일을 선택하거나 데모 파일을 사용해주세요!'); return; }
+
+    const simArea = document.getElementById('sim-area');
+    const respArea = document.getElementById('server-resp');
+    simArea.innerHTML = '';
+    respArea.innerHTML = '';
+
+    const fields = { title, description: desc, category: cat };
+
+    if (mode === 'mp') {
+        const mpResult = buildMultipart(fields, fileData);
+        renderSingleView(simArea, respArea, 'mp', mpResult, fields, fileData);
+    } else if (mode === 'json') {
+        const jsonResult = buildJson(fields, fileData);
+        renderSingleView(simArea, respArea, 'json', jsonResult, fields, fileData);
+    } else {
+        const mpResult = buildMultipart(fields, fileData);
+        const jsonResult = buildJson(fields, fileData);
+        renderBothView(simArea, respArea, mpResult, jsonResult, fields, fileData);
+    }
+}
+
+// ========== Multipart 생성 ==========
+function buildMultipart(fields, file) {
+    const boundary = '----WebKitFormBoundary' + randomStr(16);
+    let body = '';
+    let rawSize = 0;
+
+    for (const [key, val] of Object.entries(fields)) {
+        body += `--${boundary}\r\n`;
+        body += `Content-Disposition: form-data; name="${key}"\r\n\r\n`;
+        body += `${val}\r\n`;
+    }
+
+    body += `--${boundary}\r\n`;
+    body += `Content-Disposition: form-data; name="file"; filename="${file.name}"\r\n`;
+    body += `Content-Type: ${file.type}\r\n\r\n`;
+    body += `[📦 바이너리 데이터 ${formatSize(file.size)}]\r\n`;
+    body += `--${boundary}--\r\n`;
+
+    // 실제 크기 계산
+    let textSize = 0;
+    for (const [key, val] of Object.entries(fields)) {
+        textSize += `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${val}\r\n`.length;
+    }
+    textSize += `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${file.name}"\r\nContent-Type: ${file.type}\r\n\r\n`.length;
+    textSize += `\r\n--${boundary}--\r\n`.length;
+    rawSize = textSize + file.size;
+
+    const headers = `POST /api/upload HTTP/1.1
+Host: localhost:8080
+Content-Type: multipart/form-data; boundary=${boundary}
+Content-Length: ${rawSize}
+Accept: application/json`;
+
+    return { headers, body, boundary, totalSize: rawSize };
+}
+
+// ========== JSON + Base64 생성 ==========
+function buildJson(fields, file) {
+    const base64 = uint8ToBase64(file.bytes);
+    const jsonObj = {
+        ...fields,
+        file: {
+            filename: file.name,
+            contentType: file.type,
+            size: file.size,
+            data: base64
+        }
+    };
+    const jsonStr = JSON.stringify(jsonObj, null, 2);
+    const totalSize = new Blob([jsonStr]).size;
+
+    const headers = `POST /api/upload HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+Content-Length: ${totalSize}
+Accept: application/json`;
+
+    return { headers, body: jsonStr, base64, totalSize, jsonObj };
+}
+
+// ========== 단일 모드 렌더 ==========
+function renderSingleView(simArea, respArea, type, result, fields, file) {
+    const isMp = type === 'mp';
+    const color = isMp ? 'mp' : 'json';
+    const label = isMp ? 'Multipart Form-Data' : 'JSON + Base64';
+
+    simArea.innerHTML = `
+        <div class="http-block animate-in">
+            <div class="http-title ${color}">📤 HTTP Request — ${label}</div>
+            <div class="http-body">${highlightHeaders(result.headers)}\n\n${isMp ? highlightMultipart(result.body, result.boundary) : highlightJson(result.body, true)}</div>
+        </div>
+        <div class="compare animate-in">
+            <div class="cmp-card">
+                <h4>📊 전송 크기</h4>
+                <div class="val ${isMp ? 'val-mp' : 'val-json'}">${formatSize(result.totalSize)}</div>
+                <div class="desc">원본 파일: ${formatSize(file.size)}</div>
+            </div>
+            <div class="cmp-card">
+                <h4>📈 오버헤드</h4>
+                <div class="val ${isMp ? 'val-mp' : 'val-json'}">${isMp ? '~0%' : '+' + Math.round((result.totalSize / file.size - 1) * 100) + '%'}</div>
+                <div class="desc">${isMp ? '바이너리 그대로 전송' : 'Base64 인코딩으로 약 33% 증가'}</div>
+            </div>
+        </div>
+    `;
+
+    renderServerResp(respArea, type, fields, file);
+}
+
+// ========== 동시 비교 렌더 ==========
+function renderBothView(simArea, respArea, mpResult, jsonResult, fields, file) {
+    const overhead = Math.round((jsonResult.totalSize / mpResult.totalSize - 1) * 100);
+    const mpBar = Math.round(mpResult.totalSize / jsonResult.totalSize * 100);
+
+    simArea.innerHTML = `
+        <div class="compare animate-in">
+            <div class="cmp-card">
+                <h4><span style="color:#60a5fa">📦</span> Multipart 크기</h4>
+                <div class="val val-mp">${formatSize(mpResult.totalSize)}</div>
+                <div class="desc">원본 바이너리 그대로</div>
+                <div class="bar-wrap"><div class="bar-fill bar-mp" style="width:${mpBar}%"></div></div>
+            </div>
+            <div class="cmp-card">
+                <h4><span style="color:#a78bfa">📋</span> JSON+Base64 크기</h4>
+                <div class="val val-json">${formatSize(jsonResult.totalSize)}</div>
+                <div class="desc">Base64로 +${overhead}% 증가</div>
+                <div class="bar-wrap"><div class="bar-fill bar-json" style="width:100%"></div></div>
+            </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="http-block animate-in">
+                <div class="http-title mp">📦 Multipart Form-Data</div>
+                <div class="http-body" style="max-height:300px;font-size:0.68rem">${highlightHeaders(mpResult.headers)}\n\n${highlightMultipart(mpResult.body, mpResult.boundary)}</div>
+            </div>
+            <div class="http-block animate-in">
+                <div class="http-title json">📋 JSON + Base64</div>
+                <div class="http-body" style="max-height:300px;font-size:0.68rem">${highlightHeaders(jsonResult.headers)}\n\n${highlightJson(jsonResult.body, true)}</div>
+            </div>
+        </div>
+
+        <div class="compare animate-in" style="margin-top:12px">
+            <div class="cmp-card">
+                <h4>🏆 크기 효율</h4>
+                <div class="val val-win">Multipart 승</div>
+                <div class="desc">${formatSize(jsonResult.totalSize - mpResult.totalSize)} 절약</div>
+            </div>
+            <div class="cmp-card">
+                <h4>🛠️ 구조 편의성</h4>
+                <div class="val val-win">JSON 승</div>
+                <div class="desc">중첩 객체, 배열 등 자유로운 구조</div>
+            </div>
+        </div>
+
+        <div class="http-block animate-in" style="margin-top:12px">
+            <div class="http-title mp">💻 프론트엔드 코드 비교</div>
+            <div class="http-body" style="font-size:0.7rem">${highlightCodeCompare()}</div>
+        </div>
+
+        <div class="http-block animate-in" style="margin-top:10px">
+            <div class="http-title json">☕ Spring Boot Controller 비교</div>
+            <div class="http-body" style="font-size:0.7rem">${highlightControllerCompare()}</div>
+        </div>
+    `;
+
+    renderServerResp(respArea, 'both', fields, file);
+}
+
+// ========== 서버 응답 렌더 ==========
+function renderServerResp(area, type, fields, file) {
+    const parsed = `<span class="pk">title</span>: <span class="pv">"${esc(fields.title)}"</span>
+<span class="pk">description</span>: <span class="pv">"${esc(fields.description)}"</span>
+<span class="pk">category</span>: <span class="pv">"${esc(fields.category)}"</span>
+<span class="pk">file.name</span>: <span class="pv">"${esc(file.name)}"</span>
+<span class="pk">file.type</span>: <span class="pv">"${esc(file.type)}"</span>
+<span class="pk">file.size</span>: <span class="pv">${file.size} bytes (${formatSize(file.size)})</span>`;
+
+    let methodNote = '';
+    if (type === 'mp') methodNote = '<div style="margin-top:10px;padding:8px;background:#0f172a;border-radius:6px;font-size:0.72rem;color:#94a3b8"><strong style="color:#60a5fa">Multipart 파싱:</strong> Spring이 boundary를 기준으로 각 파트를 분리하여 <code style="background:#334155;padding:1px 4px;border-radius:3px;color:#f59e0b">@RequestParam</code> + <code style="background:#334155;padding:1px 4px;border-radius:3px;color:#f59e0b">MultipartFile</code>로 바인딩</div>';
+    else if (type === 'json') methodNote = '<div style="margin-top:10px;padding:8px;background:#0f172a;border-radius:6px;font-size:0.72rem;color:#94a3b8"><strong style="color:#a78bfa">JSON 파싱:</strong> Jackson이 JSON을 DTO로 매핑하고, file.data의 Base64 문자열을 <code style="background:#334155;padding:1px 4px;border-radius:3px;color:#f59e0b">byte[]</code>로 디코딩</div>';
+    else methodNote = '<div style="margin-top:10px;padding:8px;background:#0f172a;border-radius:6px;font-size:0.72rem;color:#94a3b8"><strong style="color:#60a5fa">Multipart</strong>: boundary 파싱 → 바이너리 그대로 저장<br><strong style="color:#a78bfa">JSON</strong>: Jackson 매핑 → Base64 디코딩 → byte[] 변환</div>';
+
+    area.innerHTML = `
+        <div class="resp-status resp-ok animate-in">200 OK</div>
+        <div style="font-size:0.75rem;color:#94a3b8;margin-bottom:8px">서버에서 파싱한 결과:</div>
+        <div class="parsed-data animate-in">${parsed}</div>
+        ${methodNote}
+        <div style="margin-top:12px;padding:10px;background:#0f172a;border-radius:8px;border:1px solid #334155" class="animate-in">
+            <div style="font-size:0.72rem;color:#94a3b8;margin-bottom:4px">✅ DB 저장 완료</div>
+            <div style="font-size:0.78rem;color:#4ade80;font-weight:600">Upload { id: 1, title: "${esc(fields.title)}", fileName: "${esc(file.name)}" }</div>
+        </div>
+    `;
+}
+
+// ========== 하이라이트 함수들 ==========
+function highlightHeaders(str) {
+    return str.split('\n').map((line, i) => {
+        if (i === 0) return `<span style="color:#4ade80;font-weight:700">${esc(line)}</span>`;
+        const [key, ...rest] = line.split(': ');
+        return `<span class="hl-header">${esc(key)}</span>: ${esc(rest.join(': '))}`;
+    }).join('\n');
+}
+
+function highlightMultipart(body, boundary) {
+    return body.split('\n').map(line => {
+        if (line.includes(boundary)) return `<span class="hl-boundary">${esc(line)}</span>`;
+        if (line.startsWith('Content-Disposition')) return `<span class="hl-header">${esc(line)}</span>`;
+        if (line.startsWith('Content-Type')) return `<span class="hl-header">${esc(line)}</span>`;
+        if (line.includes('바이너리')) return `<span class="hl-binary">${esc(line)}</span>`;
+        return `<span class="hl-string">${esc(line)}</span>`;
+    }).join('\n');
+}
+
+function highlightJson(str, truncBase64) {
+    let display = str;
+    if (truncBase64) {
+        display = display.replace(/"data":\s*"([A-Za-z0-9+/=]{60,})"/g, (m, b64) => {
+            const preview = b64.substring(0, 40);
+            const remaining = b64.length - 40;
+            return `"data": "${preview}... (${remaining}자 생략)"`;
+        });
+    }
+    return display.split('\n').map(line => {
+        let h = esc(line);
+        h = h.replace(/"([^"]+)"(\s*:)/g, '<span class="hl-key">"$1"</span>$2');
+        h = h.replace(/:\s*"([^"]*(\.\.\.[^"]*)?)"/g, ': <span class="hl-string">"$1"</span>');
+        h = h.replace(/:\s*(\d+)/g, ': <span style="color:#f59e0b">$1</span>');
+        if (line.includes('생략')) h = h.replace(/\((\d+자 생략)\)/, '<span class="hl-base64">($1)</span>');
+        return h;
+    }).join('\n');
+}
+
+function highlightCodeCompare() {
+    return `<span class="hl-comment">// ── Multipart Form-Data (FormData API) ──</span>
+<span class="hl-key">const</span> formData = <span class="hl-key">new</span> FormData();
+formData.append(<span class="hl-string">"title"</span>, title);
+formData.append(<span class="hl-string">"description"</span>, desc);
+formData.append(<span class="hl-string">"category"</span>, category);
+formData.append(<span class="hl-string">"file"</span>, fileInput.files[0]);  <span class="hl-comment">// 원본 바이너리</span>
+
+fetch(<span class="hl-string">"/api/upload"</span>, {
+    method: <span class="hl-string">"POST"</span>,
+    body: formData  <span class="hl-comment">// Content-Type 자동 설정 (boundary 포함)</span>
+});
+
+<span style="color:#475569">─────────────────────────────────────────</span>
+
+<span class="hl-comment">// ── JSON + Base64 (FileReader API) ──</span>
+<span class="hl-key">const</span> reader = <span class="hl-key">new</span> FileReader();
+reader.onload = () => {
+    <span class="hl-key">const</span> base64 = reader.result.split(<span class="hl-string">","</span>)[1]; <span class="hl-comment">// Base64 추출</span>
+    fetch(<span class="hl-string">"/api/upload"</span>, {
+        method: <span class="hl-string">"POST"</span>,
+        headers: { <span class="hl-string">"Content-Type"</span>: <span class="hl-string">"application/json"</span> },
+        body: JSON.stringify({
+            title, description, category,
+            file: { filename, contentType, size, data: base64 }
+        })
+    });
+};
+reader.readAsDataURL(fileInput.files[0]);`;
+}
+
+function highlightControllerCompare() {
+    return `<span class="hl-comment">// ── Multipart: @RequestParam + MultipartFile ──</span>
+<span class="hl-key">@PostMapping</span>(<span class="hl-string">"/api/upload"</span>)
+<span class="hl-key">public</span> ResponseEntity upload(
+    <span class="hl-key">@RequestParam</span> String title,
+    <span class="hl-key">@RequestParam</span> String description,
+    <span class="hl-key">@RequestParam</span> String category,
+    <span class="hl-key">@RequestParam</span> MultipartFile file  <span class="hl-comment">// 바이너리 그대로 수신</span>
+) {
+    <span class="hl-key">byte</span>[] bytes = file.getBytes(); <span class="hl-comment">// 즉시 사용 가능</span>
+}
+
+<span style="color:#475569">─────────────────────────────────────────</span>
+
+<span class="hl-comment">// ── JSON + Base64: @RequestBody + DTO ──</span>
+<span class="hl-key">@PostMapping</span>(<span class="hl-string">"/api/upload"</span>)
+<span class="hl-key">public</span> ResponseEntity upload(
+    <span class="hl-key">@RequestBody</span> UploadRequest req  <span class="hl-comment">// JSON → DTO 매핑</span>
+) {
+    <span class="hl-key">byte</span>[] bytes = Base64.getDecoder()
+        .decode(req.getFile().getData()); <span class="hl-comment">// Base64 디코딩 필요</span>
+}
+
+<span class="hl-key">record</span> UploadRequest(
+    String title, String description, String category,
+    FileDto file <span class="hl-comment">// { filename, contentType, size, data(base64) }</span>
+) {}`;
+}
+
+// ========== 유틸리티 ==========
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function formatSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+    return (b/1024/1024).toFixed(2) + ' MB';
+}
+function randomStr(n) {
+    const c = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    return Array.from({length:n}, () => c[Math.floor(Math.random()*c.length)]).join('');
+}
+function uint8ToBase64(u8) {
+    let bin = '';
+    const chunk = 8192;
+    for (let i = 0; i < u8.length; i += chunk) {
+        bin += String.fromCharCode.apply(null, u8.subarray(i, i + chunk));
+    }
+    return btoa(bin);
+}
+
+// 초기 데모 파일 자동 선택
+useDemoFile('medium');
+setMode('both');
+</script>
+</body>
+</html>
